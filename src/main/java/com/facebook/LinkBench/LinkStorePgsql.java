@@ -49,7 +49,7 @@ public class LinkStorePgsql extends GraphStore {
   //public static final String CONFIG_DISABLE_BINLOG_LOAD = "mysql_disable_binlog_load";
 
 	//XXX woonhak, test small bulk insert size (sometimes JDBC buffer got overflowed);
-  public static final int DEFAULT_BULKINSERT_SIZE = 128;
+  public static final int DEFAULT_BULKINSERT_SIZE = 256;
 
   private static final boolean INTERNAL_TESTING = false;
 
@@ -388,8 +388,8 @@ public class LinkStorePgsql extends GraphStore {
                       ", " + currentTime +
                       ", " + 0 + ") " +
                       "ON CONFLICT ON CONSTRAINT " + counttable + "_pkey DO UPDATE SET " +
-                      " count = count + " + update_count +
-                      ", version = version + 1 " +
+                      " count = " + dbid + "." + counttable +".count + " + update_count +
+                      ", version = "+ dbid + "." + counttable +".version + 1 " +
                       ", time = " + currentTime + ";";
 
       if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
@@ -578,10 +578,16 @@ public class LinkStorePgsql extends GraphStore {
                       ", 0" +
                       ", " + currentTime +
                       ", " + 0 + ") " +
-                      "ON DUPLICATE KEY UPDATE" +
-                      " count = IF (count = 0, 0, count - 1)" +
+                      //"ON DUPLICATE KEY UPDATE" +
+											//XXX woonhak - change duplicate ON CONFLICT 
+                      "ON CONFLICT ON CONSTRAINT " + counttable +	"_pkey " +
+											" DO UPDATE SET " +
+                      //" count = IF (count = 0, 0, count - 1)" +
+											//XXX woonhak - replace function IF() with CASE
+											" count = CASE WHEN " + dbid + "." + counttable + ".count = 0 THEN 0 " +
+											" ELSE " + dbid + "." + counttable + ".count - 1 END " +
                       ", time = " + currentTime +
-                      ", version = version + 1;";
+                      ", version = " + dbid + "." + counttable + ".version + 1;";
 
       if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
         logger.trace(update);
