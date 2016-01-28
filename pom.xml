@@ -74,6 +74,7 @@
             <artifactId>mysql-connector-java</artifactId>
             <version>5.1.38</version>
         </dependency>
+
     </dependencies>
 
     <profiles>
@@ -138,6 +139,30 @@
                 </plugins>
             </build>
         </profile>
+				<!-- add new profile for PostgreSQL -->
+        <profile>
+            <id>pgsql</id>
+            <repositories>
+                <repository>
+                    <id>central</id>
+                    <url>http://repo1.maven.org/maven2</url>
+                    <releases>
+                        <enabled>true</enabled>
+                    </releases>
+                    <snapshots>
+                        <enabled>true</enabled>
+                    </snapshots>
+                </repository>
+            </repositories>
+						<!-- woonhak - add this for connect to PostgreSQL -->
+						<dependencies>
+        			<dependency>
+								<groupId>org.postgresql</groupId>
+								<artifactId>postgresql</artifactId>
+								<version>9.4.1207.jre7</version>
+        			</dependency>
+						</dependencies>
+        		</profile>
     </profiles>
 
     <build>
