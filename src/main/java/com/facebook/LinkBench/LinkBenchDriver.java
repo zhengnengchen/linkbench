@@ -15,40 +15,24 @@
  */
 package com.facebook.LinkBench;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.ByteBuffer;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Properties;
-import java.util.Random;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicLong;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.LinkBenchLoad.LoadChunk;
 import com.facebook.LinkBench.LinkBenchLoad.LoadProgress;
 import com.facebook.LinkBench.LinkBenchRequest.RequestProgress;
 import com.facebook.LinkBench.stats.LatencyStats;
 import com.facebook.LinkBench.stats.SampledStats;
 import com.facebook.LinkBench.util.ClassLoadUtil;
+import org.apache.commons.cli.*;
+import org.apache.log4j.Logger;
+
+import java.io.*;
+import java.nio.ByteBuffer;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
 
 /*
  LinkBenchDriver class.
@@ -77,6 +61,7 @@ public class LinkBenchDriver {
   private static boolean doRequest = false;
 
   private Properties props;
+  private int dbcount;
 
   private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
 
@@ -93,6 +78,7 @@ public class LinkBenchDriver {
     loadWorkloadProps();
 
     ConfigUtil.setupLogging(props, logFile);
+    dbcount = ConfigUtil.getInt(props, Config.DBCOUNT, 1);
 
     logger.info("Config file: " + configfile);
     logger.info("Workload config file: " + workloadConfigFile);
@@ -220,7 +206,7 @@ public class LinkBenchDriver {
 
 
     boolean bulkLoad = true;
-    BlockingQueue<LoadChunk> chunk_q = new LinkedBlockingQueue<LoadChunk>();
+    ConcurrentLinkedQueue<LinkedBlockingQueue<LoadChunk>> chunk_q_list = new ConcurrentLinkedQueue<>();
 
     // max id1 to generate
     long maxid1 = ConfigUtil.getLong(props, Config.MAX_ID);
@@ -246,7 +232,7 @@ public class LinkBenchDriver {
 
       bulkLoad = bulkLoad && linkStore.bulkLoadBatchSize() > 0;
       LinkBenchLoad l = new LinkBenchLoad(linkStore, props, latencyStats,
-              csvStreamFile, i, maxid1 == startid1 + 1, chunk_q, loadTracker);
+              csvStreamFile, i, maxid1 == startid1 + 1, chunk_q_list, loadTracker);
       loaders.add(l);
     }
 
@@ -258,7 +244,7 @@ public class LinkBenchDriver {
       loaders.add(new NodeLoader(props, logger, nodeStore, rng,
           latencyStats, csvStreamFile, loaderId));
     }
-    enqueueLoadWork(chunk_q, startid1, maxid1, nLinkLoaders,
+    enqueueLoadWork(chunk_q_list, startid1, maxid1, nLinkLoaders,
                     new Random(masterRandom.nextLong()));
     // run loaders
     loadTracker.startTimer();
@@ -327,27 +313,31 @@ public class LinkBenchDriver {
     return masterRandom;
   }
 
-  private void enqueueLoadWork(BlockingQueue<LoadChunk> chunk_q, long startid1,
-      long maxid1, int nloaders, Random rng) {
+  private void enqueueLoadWork(ConcurrentLinkedQueue<LinkedBlockingQueue<LoadChunk>> chunk_q_list,
+                               long startid1, long maxid1, int nloaders, Random rng) {
     // Enqueue work chunks.  Do it in reverse order as a heuristic to improve
     // load balancing, since queue is FIFO and later chunks tend to be larger
 
     int chunkSize = ConfigUtil.getInt(props, Config.LOADER_CHUNK_SIZE, 2048);
-    long chunk_num = 0;
-    ArrayList<LoadChunk> stack = new ArrayList<LoadChunk>();
-    for (long id1 = startid1; id1 < maxid1; id1 += chunkSize) {
-      stack.add(new LoadChunk(chunk_num, id1,
-                    Math.min(id1 + chunkSize, maxid1), rng));
-      chunk_num++;
-    }
+    for (int count = 0; count < dbcount; ++count) {
+      LinkedBlockingQueue<LoadChunk> chunk_q = new LinkedBlockingQueue<>();
+      long chunk_num = 0;
+      ArrayList<LoadChunk> stack = new ArrayList<LoadChunk>();
+      for (long id1 = startid1; id1 < maxid1; id1 += chunkSize) {
+        stack.add(new LoadChunk(chunk_num, id1,
+                Math.min(id1 + chunkSize, maxid1), rng));
+        chunk_num++;
+      }
 
-    for (int i = stack.size() - 1; i >= 0; i--) {
-      chunk_q.add(stack.get(i));
-    }
+      for (int i = stack.size() - 1; i >= 0; i--) {
+        chunk_q.add(stack.get(i));
+      }
 
-    for (int i = 0; i < nloaders; i++) {
-      // Add a shutdown signal for each loader
-      chunk_q.add(LoadChunk.SHUTDOWN);
+      for (int i = 0; i < nloaders; i++) {
+        // Add a shutdown signal for each loader
+        chunk_q.add(LoadChunk.SHUTDOWN);
+      }
+      chunk_q_list.add(chunk_q);
     }
   }
 
@@ -514,7 +504,6 @@ public class LinkBenchDriver {
   /**
    * Process command line arguments and set static variables
    * exits program if invalid arguments provided
-   * @param options
    * @param args
    * @throws ParseException
    */

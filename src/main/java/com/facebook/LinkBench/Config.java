@@ -30,7 +30,9 @@ public class Config {
   public static final String NODESTORE_CLASS = "nodestore";
 
   /* Schema and tables used */
-  public static final String DBID = "dbid";
+  public static final String DBPREFIX = "dbprefix";
+  public static final String DBCOUNT = "dbcount";
+  public static final String DBLOAD = "dbload";
   public static final String LINK_TABLE = "linktable";
   public static final String COUNT_TABLE = "counttable";
   public static final String NODE_TABLE = "nodetable";

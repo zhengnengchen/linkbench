@@ -43,7 +43,6 @@ public class NodeLoader implements Runnable {
   private final Logger logger;
   private final NodeStore nodeStore;
   private final Random rng;
-  private final String dbid;
 
   // Data generation settings
   private final DataGenerator nodeDataGen;
@@ -53,6 +52,10 @@ public class NodeLoader implements Runnable {
   private final int loaderId;
   private final SampledStats stats;
   private final LatencyStats latencyStats;
+
+  private String dbid;
+  private String dbprefix;
+  private int dbcount;
 
   private long startTime_ms;
 
@@ -81,6 +84,9 @@ public class NodeLoader implements Runnable {
     this.latencyStats = latencyStats;
     this.loaderId = loaderId;
 
+    this.dbprefix = ConfigUtil.getPropertyRequired(props, Config.DBPREFIX);
+    this.dbcount = ConfigUtil.getInt(props, Config.DBCOUNT, 1);
+
     double medianDataLength = ConfigUtil.getDouble(props, Config.NODE_DATASIZE);
     nodeDataLength = new LogNormalDistribution();
     nodeDataLength.init(0, NodeStore.MAX_NODE_DATA, medianDataLength,
@@ -98,8 +104,6 @@ public class NodeLoader implements Runnable {
     }
 
     debuglevel = ConfigUtil.getDebugLevel(props);
-    dbid = ConfigUtil.getPropertyRequired(props, Config.DBID);
-
 
     displayFreq_ms = ConfigUtil.getLong(props, Config.DISPLAY_FREQ) * 1000;
     int maxsamples = ConfigUtil.getInt(props, Config.MAX_STAT_SAMPLES);
@@ -110,45 +114,48 @@ public class NodeLoader implements Runnable {
   public void run() {
     logger.info("Starting loader thread  #" + loaderId + " loading nodes");
 
-    try {
-      this.nodeStore.initialize(props, Phase.LOAD, loaderId);
-    } catch (Exception e) {
-      logger.error("Error while initializing store", e);
-      throw new RuntimeException(e);
-    }
-
-    try {
-      // Set up ids to start at desired range
-      nodeStore.resetNodeStore(dbid, ConfigUtil.getLong(props, Config.MIN_ID));
-    } catch (Exception e) {
-      logger.error("Error while resetting IDs, cannot proceed with " +
-          "node loading", e);
-      return;
-    }
-
-    int bulkLoadBatchSize = nodeStore.bulkLoadBatchSize();
-    ArrayList<Node> nodeLoadBuffer = new ArrayList<Node>(bulkLoadBatchSize);
-
-    long maxId = ConfigUtil.getLong(props, Config.MAX_ID);
-    long startId = ConfigUtil.getLong(props, Config.MIN_ID);
-    totalNodes = maxId - startId;
-    nextReport = startId + REPORT_INTERVAL;
-    startTime_ms = System.currentTimeMillis();
-    lastDisplayTime_ms = startTime_ms;
-    for (long id = startId; id < maxId; id++) {
-      genNode(rng, id, nodeLoadBuffer, bulkLoadBatchSize);
-
-      long now = System.currentTimeMillis();
-      if (lastDisplayTime_ms + displayFreq_ms <= now) {
-        displayAndResetStats();
+    for (int count = 0; count < dbcount; ++count) {
+      dbid = dbprefix + count;
+      try {
+        this.nodeStore.initialize(props, Phase.LOAD, loaderId);
+      } catch (Exception e) {
+        logger.error("Error while initializing store", e);
+        throw new RuntimeException(e);
       }
-    }
-    // Load any remaining data
-    loadNodes(nodeLoadBuffer);
 
-    logger.info("Loading of nodes [" + startId + "," + maxId + ") done");
-    displayAndResetStats();
-    nodeStore.close();
+      try {
+        // Set up ids to start at desired range
+        nodeStore.resetNodeStore(dbid, ConfigUtil.getLong(props, Config.MIN_ID));
+      } catch (Exception e) {
+        logger.error("Error while resetting IDs, cannot proceed with " +
+                "node loading", e);
+        return;
+      }
+
+      int bulkLoadBatchSize = nodeStore.bulkLoadBatchSize();
+      ArrayList<Node> nodeLoadBuffer = new ArrayList<Node>(bulkLoadBatchSize);
+
+      long maxId = ConfigUtil.getLong(props, Config.MAX_ID);
+      long startId = ConfigUtil.getLong(props, Config.MIN_ID);
+      totalNodes = maxId - startId;
+      nextReport = startId + REPORT_INTERVAL;
+      startTime_ms = System.currentTimeMillis();
+      lastDisplayTime_ms = startTime_ms;
+      for (long id = startId; id < maxId; id++) {
+        genNode(rng, id, nodeLoadBuffer, bulkLoadBatchSize);
+
+        long now = System.currentTimeMillis();
+        if (lastDisplayTime_ms + displayFreq_ms <= now) {
+          displayAndResetStats();
+        }
+      }
+      // Load any remaining data
+      loadNodes(nodeLoadBuffer);
+
+      logger.info("Loading of nodes [" + startId + "," + maxId + ") done");
+      displayAndResetStats();
+      nodeStore.close();
+    }
   }
 
   private void displayAndResetStats() {

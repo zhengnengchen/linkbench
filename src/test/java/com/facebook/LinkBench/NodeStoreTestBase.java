@@ -37,7 +37,8 @@ import org.junit.Test;
  */
 public abstract class NodeStoreTestBase extends TestCase {
 
-  protected String testDB = "linkbench_unittestdb";
+  protected String testPrefix = "linkbench_unittestdb";
+  protected String testDB = "linkbench_unittestdb0";
 
   protected abstract void initNodeStore(Properties props)
           throws Exception, IOException;
@@ -47,7 +48,7 @@ public abstract class NodeStoreTestBase extends TestCase {
 
   protected Properties basicProps() {
     Properties props = new Properties();
-    props.setProperty(Config.DBID, testDB);
+    props.setProperty(Config.DBPREFIX, testPrefix);
     return props;
   }
 

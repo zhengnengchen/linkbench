@@ -16,11 +16,7 @@
 package com.facebook.LinkBench;
 
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Properties;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Level;
@@ -69,6 +65,9 @@ public class LinkBenchRequest implements Runnable {
   long displayFreq_ms;
   long progressFreq_ms;
   String dbid;
+  String dbprefix;
+  int dbcount;
+  ArrayList<Integer> dbload;
   boolean singleAssoc = false;
 
   // Control data generation settings
@@ -198,7 +197,34 @@ public class LinkBenchRequest implements Runnable {
     this.requesterID = requesterID;
 
     debuglevel = ConfigUtil.getDebugLevel(props);
-    dbid = ConfigUtil.getPropertyRequired(props, Config.DBID);
+    dbprefix = ConfigUtil.getPropertyRequired(props, Config.DBPREFIX);
+    dbcount = ConfigUtil.getInt(props, Config.DBCOUNT, 1);
+    if (dbcount > 100) {
+      throw new LinkBenchConfigError("dbcount cannot be greater than 100");
+    }
+    dbload = new ArrayList<Integer>();
+    String dbloadstr = ConfigUtil.getString(props, Config.DBLOAD);
+    if (dbloadstr == null || dbloadstr.isEmpty()) {
+      for (int i = 0; i < dbcount; ++i) {
+        dbload.add((100 / dbcount) + (i == 0 ? 0 : dbload.get(i - 1)));
+      }
+      dbload.add(dbcount - 1, dbload.get(dbcount - 1) + 100 % dbcount);
+    } else {
+      List<String> strlist = Arrays.asList(dbloadstr.split(","));
+      if (strlist.size() != dbcount) {
+        throw new LinkBenchConfigError("dbload should have dbcount number of elements");
+      }
+      int i = 0;
+      for (String s : strlist) {
+        dbload.add(Integer.parseInt(s.trim()) + (i == 0 ? 0 : dbload.get(i - 1)));
+        ++i;
+      }
+      if (dbload.get(i - 1) != 100) {
+        throw new LinkBenchConfigError("Percentages of db loads do not " +
+                "add to 100, only " + dbload.get(i - 1) + "!");
+      }
+    }
+
     numRequests = ConfigUtil.getLong(props, Config.NUM_REQUESTS);
     requestrate = ConfigUtil.getLong(props, Config.REQUEST_RATE, 0L);
     maxFailedRequests = ConfigUtil.getLong(props,  Config.MAX_FAILED_REQUESTS, 0L);
@@ -730,6 +756,15 @@ public class LinkBenchRequest implements Runnable {
     long i;
 
     if (singleAssoc) {
+      int dbindex = 0;
+      double r = rng.nextDouble() * 100.0;
+      for (Integer load : dbload) {
+        if (r <= load) {
+          break;
+        }
+        ++dbindex;
+      }
+      dbid = dbprefix + dbindex;
       LinkBenchOp type = LinkBenchOp.UNKNOWN;
       try {
         Link link = new Link();
@@ -767,6 +802,15 @@ public class LinkBenchRequest implements Runnable {
     long reqTime_ns = System.nanoTime();
     double requestrate_ns = ((double)requestrate)/1e9;
     while (requestsDone < numRequests) {
+      int dbindex = 0;
+      double r = rng.nextDouble() * 100.0;
+      for (Integer load : dbload) {
+        if (r <= load) {
+          break;
+        }
+        ++dbindex;
+      }
+      dbid = dbprefix + dbindex;
       if (requestrate > 0) {
         reqTime_ns = Timer.waitExpInterval(rng, reqTime_ns, requestrate_ns);
       }

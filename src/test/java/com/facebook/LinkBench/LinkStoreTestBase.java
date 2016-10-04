@@ -16,10 +16,9 @@
 package com.facebook.LinkBench;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Properties;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import junit.framework.TestCase;
@@ -52,7 +51,8 @@ import com.facebook.LinkBench.stats.LatencyStats;
  */
 public abstract class LinkStoreTestBase extends TestCase {
 
-  protected String testDB = "linkbench_unittestdb";
+  protected String testPrefix = "linkbench_unittestdb";
+  protected String testDB = "linkbench_unittestdb0";
   private Logger logger = Logger.getLogger("");
 
   /**
@@ -105,7 +105,7 @@ public abstract class LinkStoreTestBase extends TestCase {
    */
   protected Properties basicProps() {
     Properties props = new Properties();
-    props.setProperty(Config.DBID, testDB);
+    props.setProperty(Config.DBPREFIX, testPrefix);
     return props;
   }
 
@@ -764,7 +764,6 @@ public abstract class LinkStoreTestBase extends TestCase {
    * @param logger
    * @param props
    * @param store
-   * @param idCount
    * @throws IOException
    * @throws Exception
    */
@@ -773,7 +772,7 @@ public abstract class LinkStoreTestBase extends TestCase {
     LatencyStats latencyStats = new LatencyStats(1);
 
     /* Load up queue with work */
-    BlockingQueue<LoadChunk>  chunk_q = new LinkedBlockingQueue<LoadChunk>();
+    LinkedBlockingQueue<LoadChunk>  chunk_q = new LinkedBlockingQueue<LoadChunk>();
     long startId = ConfigUtil.getLong(props, Config.MIN_ID);
     long idCount = ConfigUtil.getLong(props, Config.MAX_ID) - startId;
 
@@ -787,11 +786,14 @@ public abstract class LinkStoreTestBase extends TestCase {
     }
     chunk_q.add(LoadChunk.SHUTDOWN);
 
+    ConcurrentLinkedQueue<LinkedBlockingQueue<LoadChunk>> chunk_q_list = new ConcurrentLinkedQueue<>();
+    chunk_q_list.add(chunk_q);
+
 
     LoadProgress tracker = new LoadProgress(logger, idCount, 1000);
     tracker.startTimer();
     LinkBenchLoad loader = new LinkBenchLoad(store,
-        props, latencyStats, System.out, 0, false, chunk_q, tracker);
+        props, latencyStats, System.out, 0, false, chunk_q_list, tracker);
     /* Run the loading process */
     loader.run();
 
