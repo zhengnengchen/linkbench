@@ -61,7 +61,6 @@ public class LinkStorePgsql extends GraphStore {
   String user;
   String pwd;
   String port;
-  String defaultDB;
 
   Level debuglevel;
   // Use read-only and read-write connections and statements to avoid toggling
@@ -109,7 +108,6 @@ public class LinkStorePgsql extends GraphStore {
     user = ConfigUtil.getPropertyRequired(props, CONFIG_USER);
     pwd = ConfigUtil.getPropertyRequired(props, CONFIG_PASSWORD);
     port = props.getProperty(CONFIG_PORT);
-    defaultDB = ConfigUtil.getPropertyRequired(props, Config.DBID);
 
     if (port == null || port.equals("")) port = "5432"; //use default port
     debuglevel = ConfigUtil.getDebugLevel(props);
@@ -143,16 +141,8 @@ public class LinkStorePgsql extends GraphStore {
     stmt_rw = null;
 
     String jdbcUrl = "jdbc:postgresql://"+ host + ":" + port + "/";
-    if (defaultDB != null) {
-      jdbcUrl += defaultDB;
-    }
 
     Class.forName("org.postgresql.Driver").newInstance();
-
-		/* XXX woonhak - I add a SCHEMA for access tables using 'dbid.table_name' style.
-		   to do so, we need to set 'search_path' for the our schema,
-		   I guess schema name is the same as dbname */
-    jdbcUrl += "?searchpath=" + defaultDB ;
 
     jdbcUrl += "?elideSetAutoCommits=true" +
                "&useLocalTransactionState=true" +

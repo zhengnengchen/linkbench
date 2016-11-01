@@ -55,7 +55,6 @@ public class LinkStoreMysql extends GraphStore {
   String user;
   String pwd;
   String port;
-  String defaultDB;
 
   Level debuglevel;
   // Use read-only and read-write connections and statements to avoid toggling
@@ -103,7 +102,6 @@ public class LinkStoreMysql extends GraphStore {
     user = ConfigUtil.getPropertyRequired(props, CONFIG_USER);
     pwd = ConfigUtil.getPropertyRequired(props, CONFIG_PASSWORD);
     port = props.getProperty(CONFIG_PORT);
-    defaultDB = ConfigUtil.getPropertyRequired(props, Config.DBID);
 
     if (port == null || port.equals("")) port = "3306"; //use default port
     debuglevel = ConfigUtil.getDebugLevel(props);
@@ -135,10 +133,7 @@ public class LinkStoreMysql extends GraphStore {
     stmt_ro = null;
     stmt_rw = null;
 
-    String jdbcUrl = "jdbc:mysql://"+ host + ":" + port + "/";
-    if (defaultDB != null) {
-      jdbcUrl += defaultDB;
-    }
+    String jdbcUrl = "jdbc:mysql://" + host + ":" + port + "/";
 
     Class.forName("com.mysql.jdbc.Driver").newInstance();
 

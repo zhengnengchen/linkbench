@@ -32,7 +32,8 @@ import com.facebook.LinkBench.stats.LatencyStats;
 
 public abstract class GraphStoreTestBase extends TestCase {
 
-  protected String testDB = "linkbench_unittestdb";
+  protected String testPrefix = "linkbench_unittestdb";
+  protected String testDB = "linkbench_unittestdb0";
   private Logger logger = Logger.getLogger("");
 
   /**
@@ -85,7 +86,7 @@ public abstract class GraphStoreTestBase extends TestCase {
    */
   protected Properties basicProps() {
     Properties props = new Properties();
-    props.setProperty(Config.DBID, testDB);
+    props.setProperty(Config.DBPREFIX, testPrefix);
     return props;
   }
 

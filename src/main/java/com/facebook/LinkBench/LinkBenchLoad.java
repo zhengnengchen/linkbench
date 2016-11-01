@@ -16,14 +16,11 @@
 package com.facebook.LinkBench;
 
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Level;
@@ -64,6 +61,8 @@ public class LinkBenchLoad implements Runnable {
 
   Level debuglevel;
   String dbid;
+  String dbprefix;
+  int dbcount;
 
   private ID2Chooser id2chooser;
 
@@ -78,7 +77,7 @@ public class LinkBenchLoad implements Runnable {
    * are collected at a higher layer. */
   boolean singleAssoc;
 
-  private BlockingQueue<LoadChunk> chunk_q;
+  private ConcurrentLinkedQueue<LinkedBlockingQueue<LoadChunk>> chunk_q_list;
 
   // Track last time stats were updated in ms
   private long lastDisplayTime;
@@ -91,7 +90,7 @@ public class LinkBenchLoad implements Runnable {
 
   /**
    * Convenience constructor
-   * @param store2
+   * @param store
    * @param props
    * @param latencyStats
    * @param loaderID
@@ -102,11 +101,15 @@ public class LinkBenchLoad implements Runnable {
       int loaderID, boolean singleAssoc,
       int nloaders, LoadProgress prog_tracker, Random rng) {
     this(store, props, latencyStats, csvStreamOut, loaderID, singleAssoc,
-              new ArrayBlockingQueue<LoadChunk>(2), prog_tracker);
+              new ConcurrentLinkedQueue<LinkedBlockingQueue<LoadChunk>>(), prog_tracker);
 
-    // Just add a single chunk to the queue
-    chunk_q.add(new LoadChunk(loaderID, startid1, maxid1, rng));
-    chunk_q.add(LoadChunk.SHUTDOWN);
+    // Just add a single chunk to the queue for each db
+    for (int count = 0; count < dbcount; ++count) {
+      LinkedBlockingQueue<LoadChunk> chunk_q = new LinkedBlockingQueue<>(2);
+      chunk_q.add(new LoadChunk(loaderID, startid1, maxid1, rng));
+      chunk_q.add(LoadChunk.SHUTDOWN);
+      chunk_q_list.add(chunk_q);
+    }
   }
 
 
@@ -116,7 +119,7 @@ public class LinkBenchLoad implements Runnable {
                        PrintStream csvStreamOut,
                        int loaderID,
                        boolean singleAssoc,
-                       BlockingQueue<LoadChunk> chunk_q,
+                       ConcurrentLinkedQueue<LinkedBlockingQueue<LoadChunk>> chunk_q_list,
                        LoadProgress prog_tracker) throws LinkBenchConfigError {
     /*
      * Initialize fields from arguments
@@ -126,7 +129,7 @@ public class LinkBenchLoad implements Runnable {
     this.latencyStats = latencyStats;
     this.loaderID = loaderID;
     this.singleAssoc = singleAssoc;
-    this.chunk_q = chunk_q;
+    this.chunk_q_list = chunk_q_list;
     this.prog_tracker = prog_tracker;
 
 
@@ -163,7 +166,8 @@ public class LinkBenchLoad implements Runnable {
     displayFreq_ms = ConfigUtil.getLong(props, Config.DISPLAY_FREQ) * 1000;
     int maxsamples = ConfigUtil.getInt(props, Config.MAX_STAT_SAMPLES);
 
-    dbid = ConfigUtil.getPropertyRequired(props, Config.DBID);
+    this.dbprefix = ConfigUtil.getPropertyRequired(props, Config.DBPREFIX);
+    this.dbcount = ConfigUtil.getInt(props, Config.DBCOUNT, 1);
 
     /*
      * Initialize statistics
@@ -182,6 +186,9 @@ public class LinkBenchLoad implements Runnable {
 
   @Override
   public void run() {
+    if (chunk_q_list.size() != dbcount) {
+      throw new RuntimeException("Chunk list size not equal to dbcount!");
+    }
     try {
       this.store.initialize(props, Phase.LOAD, loaderID);
     } catch (Exception e) {
@@ -189,48 +196,54 @@ public class LinkBenchLoad implements Runnable {
       throw new RuntimeException(e);
     }
 
-    int bulkLoadBatchSize = store.bulkLoadBatchSize();
-    boolean bulkLoad = bulkLoadBatchSize > 0;
-    ArrayList<Link> loadBuffer = null;
-    ArrayList<LinkCount> countLoadBuffer = null;
-    if (bulkLoad) {
-      loadBuffer = new ArrayList<Link>(bulkLoadBatchSize);
-      countLoadBuffer = new ArrayList<LinkCount>(bulkLoadBatchSize);
-    }
+    long count = 0;
 
-    logger.info("Starting loader thread  #" + loaderID + " loading links");
-    lastDisplayTime = System.currentTimeMillis();
-
-    while (true) {
-      LoadChunk chunk;
-      try {
-        chunk = chunk_q.take();
-        //logger.info("chunk end="+chunk.end);
-      } catch (InterruptedException ie) {
-        logger.warn("InterruptedException not expected, try again", ie);
-        continue;
+    for (LinkedBlockingQueue<LoadChunk> chunk_q : chunk_q_list) {
+      dbid = dbprefix + count;
+      ++count;
+      int bulkLoadBatchSize = store.bulkLoadBatchSize();
+      boolean bulkLoad = bulkLoadBatchSize > 0;
+      ArrayList<Link> loadBuffer = null;
+      ArrayList<LinkCount> countLoadBuffer = null;
+      if (bulkLoad) {
+        loadBuffer = new ArrayList<Link>(bulkLoadBatchSize);
+        countLoadBuffer = new ArrayList<LinkCount>(bulkLoadBatchSize);
       }
 
-      // Shutdown signal is received though special chunk type
-      if (chunk.shutdown) {
-        break;
+      logger.info("Starting loader thread  #" + loaderID + " loading links");
+      lastDisplayTime = System.currentTimeMillis();
+
+      while (true) {
+        LoadChunk chunk;
+        try {
+          chunk = chunk_q.take();
+          //logger.info("chunk end="+chunk.end);
+        } catch (InterruptedException ie) {
+          logger.warn("InterruptedException not expected, try again", ie);
+          continue;
+        }
+
+        // Shutdown signal is received though special chunk type
+        if (chunk.shutdown) {
+          break;
+        }
+
+        // Load the link range specified in the chunk
+        processChunk(chunk, bulkLoad, bulkLoadBatchSize,
+                loadBuffer, countLoadBuffer);
       }
 
-      // Load the link range specified in the chunk
-      processChunk(chunk, bulkLoad, bulkLoadBatchSize,
-                    loadBuffer, countLoadBuffer);
-    }
+      if (bulkLoad) {
+        // Load any remaining links or counts
+        loadLinks(loadBuffer);
+        loadCounts(countLoadBuffer);
+      }
 
-    if (bulkLoad) {
-      // Load any remaining links or counts
-      loadLinks(loadBuffer);
-      loadCounts(countLoadBuffer);
-    }
-
-    if (!singleAssoc) {
-      logger.debug(" Same shuffle = " + sameShuffle +
-                         " Different shuffle = " + diffShuffle);
-      displayStats(lastDisplayTime, bulkLoad);
+      if (!singleAssoc) {
+        logger.debug(" Same shuffle = " + sameShuffle +
+                " Different shuffle = " + diffShuffle);
+        displayStats(lastDisplayTime, bulkLoad);
+      }
     }
 
     store.close();
@@ -582,7 +595,7 @@ public class LinkBenchLoad implements Runnable {
     public static LoadProgress create(Logger progressLogger, Properties props) {
       long maxid1 = ConfigUtil.getLong(props, Config.MAX_ID);
       long startid1 = ConfigUtil.getLong(props, Config.MIN_ID);
-      long nids = maxid1 - startid1;
+      long nids = (maxid1 - startid1) * ConfigUtil.getInt(props, Config.DBCOUNT, 1);
       long progressReportInterval = ConfigUtil.getLong(props,
                            Config.LOAD_PROG_INTERVAL, 50000L);
       return new LoadProgress(progressLogger, nids, progressReportInterval);

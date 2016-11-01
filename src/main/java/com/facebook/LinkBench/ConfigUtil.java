@@ -119,6 +119,10 @@ public class ConfigUtil {
     return v;
   }
 
+  public static String getString(Properties props, String key) {
+    return props.getProperty(key);
+  }
+
   public static int getInt(Properties props, String key)
       throws LinkBenchConfigError {
     return getInt(props, key, null);
