@@ -601,3 +601,109 @@ so on.
     GET_LINKS_LIST count = 12678653  p25 = [0.7,0.8]ms  p50 = [1,2]ms
                    p75 = [1,2]ms  p95 = [10,11]ms  p99 = [15,16]ms
                    max = 2064.476ms  mean = 2.427ms
+
+Running a Benchmark with MongoDB
+===================================
+
+Use MongoDB 3.7.0+
+
+We need to create a new database and collections on the MongoDB server.
+We'll create a new database called `linkdb` and
+the needed collections to store graph nodes, links and link counts. MongoDB collections are the analog of SQL tables. 
+MongoDB can create collections implicitly, when inserting a document or creating an index for the first time,
+but the explicit collection creation commands are included here for clarity.
+
+    use linkdb
+    db.createCollection("linktable");
+    db.createCollection("nodetable");
+    db.createCollection("counttable");
+
+MongoDB is a document store, so we use indexes that are roughly analogous to the indexes you would 
+create on a set of SQL tables. The indexes that are used for the standard MongoDB 
+benchmark can be created with the following commands in the Mongo shell:
+
+    use linkdb
+    db.linktable.createIndex({id1: 1, link_type: 1, time: 1, visibility: 1});
+    db.counttable.createIndex({id1: 1, link_type: 1})
+     
+Here are examples of Node, Link, and Count documents, as they will appear in the database:
+    
+*Node*
+
+    {
+      "_id": NumberLong("1"),
+      "type": 2048,
+      "version": NumberLong("1"),
+      "time": 1515083223,
+      "data": BinData(0, "2z3PdFHS22dmRJ28Q29WkW9CSEGuRUO/ipY=")
+    }
+    
+*Link*
+
+    {
+      "_id": {
+        "id1": NumberLong("98305"),
+        "link_type": NumberLong("123456789"),
+        "id2": NumberLong("98305")
+      },
+      "id1": NumberLong("98305"),
+      "link_type": NumberLong("123456789"),
+      "id2": NumberLong("98305"),
+      "visibility": "1",
+      "version": 0,
+      "time": NumberLong("1514652638750"),
+      "data": BinData(0, "NDhENzdiXA==")
+    }
+    
+*Count*
+    
+    {
+      "_id": {
+        "id1": NumberLong("98305"),
+        "link_type": NumberLong("123456789")
+      },
+      "id1": NumberLong("98305"),
+      "link_type": NumberLong("123456789"),
+      "version": NumberLong("0"),
+      "time": NumberLong("1514652638750"),
+      "count": NumberLong("1")
+    }
+
+You can [turn on authentication](https://docs.mongodb.com/manual/tutorial/enable-authentication/) and create a user 
+account if you want, but for the benchmarking instructions below, we assume authentication is disabled, so user 
+credentials aren’t needed to connect to the database.
+
+Loading Data
+------------
+First we need to do an initial load of data using our config file:
+
+    ./bin/linkbench -c config/LinkConfigMongoDb.properties -l
+
+This will take a while to load, and you should get frequent progress updates.
+Once loading is finished you should see a notification like:
+
+    LOAD PHASE COMPLETED.  Loaded 100000 nodes (Expected 100000). Loaded 4547655 links (45.48 links per node).  Took 186.0 seconds.  Links/second = 24444
+
+At the end LinkBench reports a range of statistics on load time that are
+of limited interest at this stage.
+    
+
+Request Phase
+-------------
+Now you can do some benchmarking. Run the request phase using the below command:
+
+    ./bin/linkbench -c config/LinkConfigMongoDb.properties -r
+
+LinkBench will log progress to the console, along with statistics.
+Once all requests have been sent, or the time limit has elapsed, LinkBench
+will notify you of completion:
+
+    REQUEST PHASE COMPLETED. 2824617 requests done in 360 seconds. Requests/second = 7840
+
+You can also inspect the latency statistics. For example, the following line tells us the mean latency
+for link range scan operations, along with latency ranges for median (p50), 99th percentile (p99) and
+so on.
+
+    GET_LINKS_LIST count = 637296  p25 = [0.1,0.2]ms  p50 = [0.1,0.2]ms  
+        p75 = [0.2,0.3]ms  p95 = [0.3,0.4]ms  p99 = [0.5,0.6]ms  
+        max = 77.247ms  mean = 0.241ms
