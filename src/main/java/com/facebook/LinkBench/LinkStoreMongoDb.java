@@ -1,5 +1,5 @@
 /**
- * LinkStore implementation for MongoDB, using the 'applyOps' command to do transactions.
+ * LinkStore implementation for MongoDB, using the 'doTxn' command to do transactions.
  */
 
 package com.facebook.LinkBench;
@@ -196,7 +196,7 @@ public class LinkStoreMongoDb extends GraphStore {
     }
 
     /**
-     * Predicate that determines whether an 'applyOps' error response is due to a failed pre-condition.
+     * Predicate that determines whether a 'doTxn' error response is due to a failed pre-condition.
      */
     private boolean preConditionFailedError(String errMsg, int errCode) {
         return errMsg.contains("preCondition failed") && errCode == 2;
@@ -211,7 +211,7 @@ public class LinkStoreMongoDb extends GraphStore {
 
     /**
      * Execute a list of CRUD operations as a single atomic unit, only if all the given pre-conditions are satisfied.
-     * Until MongoDB supports full read/write transactions, this function utilizes the 'applyOps' command along with its
+     * Until MongoDB supports full read/write transactions, this function utilizes the 'doTxn' command along with its
      * provided "precondition" functionality to emulate this.
      *
      * A given transaction might fail for a number of reasons. If it fails due to an unsatisfied precondition, this
@@ -222,7 +222,7 @@ public class LinkStoreMongoDb extends GraphStore {
      *
      * NOTE 1: The performance of precondition checking will depend on existence of appropriate indexes.
      * NOTE 2: For any 'update' operations in a transaction, the query (i.e. the 'o2' field) must identify a
-     * document by its '_id' field. This is because the 'applyOps' command does not presently support applying an
+     * document by its '_id' field. This is because the 'doTxn' command does not presently support applying an
      * update that does not uniquely specify a document by its '_id'.
      *
      * @param operations list of operations to execute.
@@ -236,7 +236,7 @@ public class LinkStoreMongoDb extends GraphStore {
         List<BsonDocument> preConditions) throws Exception
     {
         BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("applyOps", new BsonArray(operations));
+        cmdObj.append("doTxn", new BsonArray(operations));
         cmdObj.append("preCondition", new BsonArray(preConditions));
 
         while (true) {
@@ -272,7 +272,7 @@ public class LinkStoreMongoDb extends GraphStore {
         MongoCollection<Document> countCollection = database.getCollection(counttable);
 
         // We build the INSERT_LINK operation and the UPDATE_COUNT operation as part of the
-        // same transaction. We aren't able to do transactional updates using 'applyOps' that target a
+        // same transaction. We aren't able to do transactional updates using 'doTxn' that target a
         // document by fields other than '_id', so that is why we are using the concatenated unique fields of the
         // link object (id1, link_type, id2) as its '_id'.
 
@@ -634,6 +634,7 @@ public class LinkStoreMongoDb extends GraphStore {
             .append("op", new BsonString("u"))
             .append("o", update)
             .append("o2", updateQuery)
+            .append("b", new BsonBoolean(true)) // Enable upsert.
             .append("ns", new BsonString(ns.toString()));
     }
 
@@ -726,7 +727,7 @@ public class LinkStoreMongoDb extends GraphStore {
         MongoCollection<Document> linkCollection = database.getCollection(linktable);
         List<BsonDocument> insertOps = new ArrayList<>();
 
-        // Create a list of link insert operations suitable for the 'applyOps' command.
+        // Create a list of link insert operations suitable for the 'doTxn' command.
         for (Link link : links) {
 
             // Concatenate the unique fields of the link for its '_id', so we can query for it in transactional
@@ -736,20 +737,20 @@ public class LinkStoreMongoDb extends GraphStore {
             insertOps.add(insertOp);
         }
 
-        // Run the 'applyOps' command.
+        // Run the 'doTxn' command.
         BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("applyOps", new BsonArray(insertOps));
+        cmdObj.append("doTxn", new BsonArray(insertOps));
         cmdObj.append("allowAtomic", new BsonBoolean(true));
         Document res = database.runCommand(cmdObj);
 
         // Make sure the command succeeded and that all nodes were inserted.
         if (res.getDouble("ok") != 1.0) {
-            throw new Exception("'applyOps' command failed.");
+            throw new Exception("'doTxn' command failed.");
         }
 
         int nApplied = res.getInteger("applied");
         if (nApplied != links.size()) {
-            throw new Exception("'applyOps' failed to bulk insert all nodes properly.");
+            throw new Exception("'doTxn' failed to bulk insert all nodes properly.");
         }
 
         return nApplied;
@@ -795,9 +796,9 @@ public class LinkStoreMongoDb extends GraphStore {
             insertOps.add(insertOp);
         }
 
-        // Run the 'applyOps' command.
+        // Run the 'doTxn' command.
         BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("applyOps", new BsonArray(insertOps));
+        cmdObj.append("doTxn", new BsonArray(insertOps));
         database.runCommand(cmdObj);
     }
 
@@ -844,7 +845,7 @@ public class LinkStoreMongoDb extends GraphStore {
         MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
         List<BsonDocument> insertOps = new ArrayList<>();
 
-        // Create a list of node insert operations suitable for the 'applyOps' command. We atomically pre-allocate a range
+        // Create a list of node insert operations suitable for the 'doTxn' command. We atomically pre-allocate a range
         // of node ids for the nodes we are going to insert. If the bulk node insertion fails, then these node ids will be
         // "missed" i.e. they will never be used again. We consider this acceptable, as long as, globally, node ids
         // always increase and no node id is ever assigned twice. This type of issue is similarly discussed in relation
@@ -868,21 +869,21 @@ public class LinkStoreMongoDb extends GraphStore {
             nodeId += 1;
         }
 
-        // Run the 'applyOps' command.
+        // Run the 'doTxn' command.
         BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("applyOps", new BsonArray(insertOps));
+        cmdObj.append("doTxn", new BsonArray(insertOps));
         cmdObj.append("allowAtomic", new BsonBoolean(true));
         Document res = database.runCommand(cmdObj);
 
         // Make sure the command succeeded and that all nodes were inserted.
         if (res.getDouble("ok") != 1.0) {
-            throw new Exception("'applyOps' command failed while trying to insert node ids " +
+            throw new Exception("'doTxn' command failed while trying to insert node ids " +
                 Long.toString(nodeId) +
                 "-" +
                 Long.toString(nodeId + nodes.size() - 1));
         }
         if (res.getInteger("applied") != nodes.size()) {
-            throw new Exception("'applyOps' failed to bulk insert all nodes properly.");
+            throw new Exception("'doTxn' failed to bulk insert all nodes properly.");
         }
 
         return assignedNodeIds;
