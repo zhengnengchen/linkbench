@@ -669,9 +669,49 @@ Here are examples of Node, Link, and Count documents, as they will appear in the
       "count": NumberLong("1")
     }
 
-You can [turn on authentication](https://docs.mongodb.com/manual/tutorial/enable-authentication/) and create a user 
-account if you want, but for the benchmarking instructions below, we assume authentication is disabled, so user 
-credentials aren’t needed to connect to the database.
+Connecting to the MongoDB Server
+-------------------
+Connection information is provided through the _url_ property *or* the _host_, _port_ (_user_ / _password_) properties. 
+_url_ takes precedence.
+
+
+#### URL Connection Property
+
+If the _url_ property is set then this value is used to connect to the mongodb. See the
+[connection string reference](https://docs.mongodb.com/manual/reference/connection-string/) for the list of supported
+features.
+
+#### Host / Port Connection Properties
+
+If the _url_ property is not set, then connection information must be provided through host / port properties:
+
+* _host_: __required__ the mongodb server address / name
+* _port_: __optional__ defaults to 27017
+
+
+#### Authentication
+
+The MongoDB [authentication tutorial](https://docs.mongodb.com/manual/tutorial/enable-authentication/) covers user 
+account creation, but for the benchmarking instructions below, we assume authentication is disabled, so user 
+credentials aren’t needed to connect to the database (and both properties are omitted).
+
+When using a connection string (via the _url_ property), the security details are  supplied as part of the URI (See 
+[Driver authentication](http://mongodb.github.io/mongo-java-driver/3.6/driver/tutorials/authentication/) for further 
+details.)
+
+When using a host / port configuration, the _user_ and _password_ properties provide the credentials. 
+
+* if authentication is not required: both _user_ and  _password_ must be omitted. 
+* if authentication is required: both _user_ and  _password_ must be provided. 
+
+Host / port configuration use the default authentication mechanism on the __'admin'__ database (SCRAM-SHA-1 in java 
+driver 3.6 at the time of writing). If other forms are required please use the __url__ property (see 
+[Driver authentication](http://mongodb.github.io/mongo-java-driver/3.6/driver/tutorials/authentication/) for further 
+details).
+
+For other forms of authentication, please use the __url__ property. See 
+[Driver authentication](http://mongodb.github.io/mongo-java-driver/3.6/driver/tutorials/authentication/) for further 
+details.
 
 Loading Data
 ------------

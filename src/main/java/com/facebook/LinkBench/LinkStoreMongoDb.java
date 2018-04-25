@@ -18,6 +18,7 @@ import com.mongodb.client.result.UpdateResult;
 import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Updates.*;
 
+import com.mongodb.session.ClientSession;
 import org.bson.*;
 import org.bson.Document;
 
@@ -30,14 +31,18 @@ import org.bson.types.Binary;
 public class LinkStoreMongoDb extends GraphStore {
 
     /* MongoDB database server configuration keys */
+    public static final String CONFIG_URL = "url";
     public static final String CONFIG_HOST = "host";
     public static final String CONFIG_PORT = "port";
     public static final String CONFIG_USER = "user";
     public static final String CONFIG_PASSWORD = "password";
+    public static final String AUTH_SOURCE = "authSource";
 
     public static final int DEFAULT_BULKINSERT_SIZE = 1024;
 
     private static final boolean INTERNAL_TESTING = false;
+
+    private static final int MAX_RETRIES = 128;
 
     // In MongoDB, these will be "collections", which are the analog of SQL "tables". We call them
     // "tables" here to keep the naming convention consistent across different database benchmarks.
@@ -45,19 +50,23 @@ public class LinkStoreMongoDb extends GraphStore {
     String counttable;
     String nodetable;
 
+    String url;
     String host;
-    String user;
-    String pwd;
     int port;
+    String user;
+    char[] pwd;
 
     Level debuglevel;
 
+    private ClientSession session;
     private MongoClient mongoClient;
 
     // A monotonically increasing counter used to assign unique graph node ids. We make it atomic in case it is
     // accessed from multiple threads. We use this since there is no default way to have an 'auto-incrementing' field
     // in MongoDB documents.
-    private AtomicLong nodeIdGen = new AtomicLong(0);
+    private static AtomicLong nodeIdGen = new AtomicLong(0);
+
+    private static AtomicLong txnNumberGen = new AtomicLong(0);
 
     private Phase phase;
 
@@ -72,6 +81,16 @@ public class LinkStoreMongoDb extends GraphStore {
     public LinkStoreMongoDb(Properties props) throws IOException, Exception {
         super();
         initialize(props, Phase.LOAD, 0);
+    }
+
+    /**
+     * get a transaction number
+     * @return a new unique transaction number
+     */
+    private long getNextTxnNumber() {
+        long txnNumber = txnNumberGen.getAndAdd(1);
+        logger.debug(String.format("txnNumber % 8d", txnNumber));
+        return txnNumber;
     }
 
     public void initialize(Properties props, Phase currentPhase, int threadId) throws IOException, Exception {
@@ -103,15 +122,28 @@ public class LinkStoreMongoDb extends GraphStore {
             throw new RuntimeException(msg);
         }
 
-        host = ConfigUtil.getPropertyRequired(props, CONFIG_HOST);
-        user = ConfigUtil.getPropertyRequired(props, CONFIG_USER);
-        pwd = ConfigUtil.getPropertyRequired(props, CONFIG_PASSWORD);
-        String portProp = props.getProperty(CONFIG_PORT);
+        if (! props.containsKey(CONFIG_URL) && !props.containsKey(CONFIG_HOST)) {
+            // url or host must be provided. If both are provided, then use url.
+            throw new LinkBenchConfigError(String.format("Expected '%s' or '%s' configuration keys to be defined",
+                    CONFIG_USER, CONFIG_HOST));
+        }
 
-        if (portProp == null || portProp.equals("")) {
-            port = 27017; //use default port
+        if (props.containsKey(CONFIG_URL)) {
+            url = props.getProperty(CONFIG_URL);
         } else {
-            port = Integer.parseInt(portProp);
+            host = ConfigUtil.getPropertyRequired(props, CONFIG_HOST);
+            port = ConfigUtil.getInt(props, CONFIG_PORT, 27107);
+
+            if (props.containsKey(CONFIG_USER) && !props.containsKey(CONFIG_PASSWORD) ||
+                !props.containsKey(CONFIG_USER) && props.containsKey(CONFIG_PASSWORD)) {
+                throw new LinkBenchConfigError(String.format("Both '%s' and '%s' must be supplied when credentials in use",
+                        CONFIG_USER, CONFIG_HOST));
+            }
+
+            if (props.containsKey(CONFIG_USER)) {
+                user = props.getProperty(CONFIG_USER);
+                pwd = props.getProperty(CONFIG_PASSWORD).toCharArray();
+            }
         }
 
         debuglevel = ConfigUtil.getDebugLevel(props);
@@ -126,13 +158,39 @@ public class LinkStoreMongoDb extends GraphStore {
         }
     }
 
+    /**
+     * open a connection to the remote mongo server.
+     *
+     * <ul>
+     *     <li>current session is closed</li>
+     *     <li>new connection is immediately validated by running the serverStatus command</li>
+     *     <li>a new session is created</li>
+     * </ul>:
+     *
+     * @throws Exception
+     */
     private void openConnection() throws Exception {
-        // Open client connection to MongoDB server.
-        mongoClient = new MongoClient(host, port);
+        if (session != null) {
+            session.close();
+            session = null;
+        }
+
+        // Open connection to the server.
+        if (url != null) {
+            mongoClient = new MongoClient(new MongoClientURI(url));
+        } else {
+            MongoCredential credential = null;
+            if(user != null) {
+                credential = MongoCredential.createCredential(user, "admin", pwd);
+            }
+            mongoClient = new MongoClient(new ServerAddress(host, port), credential, null);
+        }
 
         // Run a basic status command to make sure the connection is created and working properly.
         MongoDatabase adminDb = mongoClient.getDatabase("admin");
         adminDb.runCommand(new Document("serverStatus", 1));
+
+        session = mongoClient.startSession(ClientSessionOptions.builder().build());
     }
 
     @Override
@@ -224,6 +282,8 @@ public class LinkStoreMongoDb extends GraphStore {
      * NOTE 2: For any 'update' operations in a transaction, the query (i.e. the 'o2' field) must identify a
      * document by its '_id' field. This is because the 'doTxn' command does not presently support applying an
      * update that does not uniquely specify a document by its '_id'.
+     * NOTE 3: This method creates a new session with a new txnNumber per invocation. The session is closed
+     * at the end of the method.
      *
      * @param operations list of operations to execute.
      * @param preConditions a set of preconditions that must be true in order for the transaction to execute.
@@ -235,13 +295,15 @@ public class LinkStoreMongoDb extends GraphStore {
         List<BsonDocument> operations,
         List<BsonDocument> preConditions) throws Exception
     {
+        int attempt = 1;
         BsonDocument cmdObj = new BsonDocument();
         cmdObj.append("doTxn", new BsonArray(operations));
         cmdObj.append("preCondition", new BsonArray(preConditions));
 
         while (true) {
             try {
-                Document res = database.runCommand(cmdObj);
+                cmdObj.append("txnNumber", new BsonInt64(getNextTxnNumber()));
+                Document res = database.runCommand(session, cmdObj);
                 assert (res.getDouble("ok") == 1.0);
                 return true;
             } catch (MongoCommandException e) {
@@ -252,6 +314,12 @@ public class LinkStoreMongoDb extends GraphStore {
                 // If we failed due to a non-retryable error, throw the exception.
                 if (!isRetryableError(e.getCode())) {
                     throw e;
+                }
+                attempt++;
+                if (attempt > MAX_RETRIES) {
+                    String message = String.format("Too Many retries");
+                    logger.info(message, e);
+                    throw new RuntimeException(message, e);
                 }
             }
         }
@@ -717,19 +785,23 @@ public class LinkStoreMongoDb extends GraphStore {
 
     /**
      * Internal method: add links without updating the count.
+     *
+     * NOTE: This method creates a new session with a new txnNumber per invocation. The session is closed
+     * at the end of the method.
+     *
      * @param dbid
      * @param links the list of links to add
      * @return the number of links added to the database.
      * @throws Exception
      */
     private int addLinksNoCount(String dbid, List<Link> links) throws Exception {
+        long txnNumber =  getNextTxnNumber();
         MongoDatabase database = mongoClient.getDatabase(dbid);
         MongoCollection<Document> linkCollection = database.getCollection(linktable);
         List<BsonDocument> insertOps = new ArrayList<>();
 
         // Create a list of link insert operations suitable for the 'doTxn' command.
         for (Link link : links) {
-
             // Concatenate the unique fields of the link for its '_id', so we can query for it in transactional
             // 'update' operations.
             BsonDocument docToInsert = linkToBson(link).append("_id", linkBsonId(link));
@@ -740,8 +812,9 @@ public class LinkStoreMongoDb extends GraphStore {
         // Run the 'doTxn' command.
         BsonDocument cmdObj = new BsonDocument();
         cmdObj.append("doTxn", new BsonArray(insertOps));
+        cmdObj.append("txnNumber", new BsonInt64(txnNumber));
         cmdObj.append("allowAtomic", new BsonBoolean(true));
-        Document res = database.runCommand(cmdObj);
+        Document res = database.runCommand(session, cmdObj);
 
         // Make sure the command succeeded and that all nodes were inserted.
         if (res.getDouble("ok") != 1.0) {
@@ -766,11 +839,20 @@ public class LinkStoreMongoDb extends GraphStore {
         logger.trace("Added n=" + nAdded + " links");
     }
 
+    /**
+     * Add a batch of counts.
+     *
+     * NOTE: This method creates a new session with a new txnNumber per invocation. The session is closed
+     * at the end of the method.
+     *
+     * @param dbid the database name.
+     * @param counts a list of link count objects.
+     * @throws Exception
+     */
     @Override
     public void addBulkCounts(String dbid, List<LinkCount> counts)
-        throws Exception
-    {
-
+        throws Exception {
+        long txnNumber =  getNextTxnNumber();
         MongoDatabase database = mongoClient.getDatabase(dbid);
         MongoCollection<Document> countCollection = database.getCollection(counttable);
 
@@ -799,7 +881,8 @@ public class LinkStoreMongoDb extends GraphStore {
         // Run the 'doTxn' command.
         BsonDocument cmdObj = new BsonDocument();
         cmdObj.append("doTxn", new BsonArray(insertOps));
-        database.runCommand(cmdObj);
+        cmdObj.append("txnNumber", new BsonInt64(txnNumber));
+        database.runCommand(session, cmdObj);
     }
 
     @Override
@@ -838,9 +921,19 @@ public class LinkStoreMongoDb extends GraphStore {
         return nodeIds[0];
     }
 
+    /**
+     * Bulk load a  batch of nodes.
+     *
+     * NOTE: This method creates a new session with a new txnNumber per invocation. The session is closed
+     * at the end of the method.
+     *
+     * @param dbid the database name.
+     * @param nodes a list of node objects.
+     * @throws Exception
+     */
     @Override
     public long[] bulkAddNodes(String dbid, List<Node> nodes) throws Exception {
-
+        long txnNumber =  getNextTxnNumber();
         MongoDatabase database = mongoClient.getDatabase(dbid);
         MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
         List<BsonDocument> insertOps = new ArrayList<>();
@@ -858,11 +951,11 @@ public class LinkStoreMongoDb extends GraphStore {
             assignedNodeIds[i] = nodeId;
             BsonDocument docToInsert = new BsonDocument();
             docToInsert
-                .append("_id", new BsonInt64(nodeId))
-                .append("type", new BsonInt32(node.type))
-                .append("version", new BsonInt64(node.version))
-                .append("time", new BsonInt32(node.time))
-                .append("data", new BsonBinary(node.data));
+                    .append("_id", new BsonInt64(nodeId))
+                    .append("type", new BsonInt32(node.type))
+                    .append("version", new BsonInt64(node.version))
+                    .append("time", new BsonInt32(node.time))
+                    .append("data", new BsonBinary(node.data));
 
             BsonDocument insertOp = createInsertOp(docToInsert, nodeCollection.getNamespace());
             insertOps.add(insertOp);
@@ -872,22 +965,21 @@ public class LinkStoreMongoDb extends GraphStore {
         // Run the 'doTxn' command.
         BsonDocument cmdObj = new BsonDocument();
         cmdObj.append("doTxn", new BsonArray(insertOps));
-        cmdObj.append("allowAtomic", new BsonBoolean(true));
-        Document res = database.runCommand(cmdObj);
+        cmdObj.append("txnNumber", new BsonInt64(txnNumber));
+        cmdObj.append("allowAtomic", new BsonBoolean(false));
+        Document res = database.runCommand(session, cmdObj);
 
         // Make sure the command succeeded and that all nodes were inserted.
         if (res.getDouble("ok") != 1.0) {
             throw new Exception("'doTxn' command failed while trying to insert node ids " +
-                Long.toString(nodeId) +
-                "-" +
-                Long.toString(nodeId + nodes.size() - 1));
+                    Long.toString(nodeId) +
+                    "-" +
+                    Long.toString(nodeId + nodes.size() - 1));
         }
         if (res.getInteger("applied") != nodes.size()) {
             throw new Exception("'doTxn' failed to bulk insert all nodes properly.");
         }
-
         return assignedNodeIds;
-
     }
 
     @Override
