@@ -659,10 +659,10 @@ Here are examples of Node, Link, and Count documents, as they will appear in the
     
     {
       "_id": {
-        "id1": NumberLong("98305"),
+        "id": NumberLong("98305"),
         "link_type": NumberLong("123456789")
       },
-      "id1": NumberLong("98305"),
+      "id": NumberLong("98305"),
       "link_type": NumberLong("123456789"),
       "version": NumberLong("0"),
       "time": NumberLong("1514652638750"),
@@ -747,3 +747,10 @@ so on.
     GET_LINKS_LIST count = 637296  p25 = [0.1,0.2]ms  p50 = [0.1,0.2]ms  
         p75 = [0.2,0.3]ms  p95 = [0.3,0.4]ms  p99 = [0.5,0.6]ms  
         max = 77.247ms  mean = 0.241ms
+        
+Running Tests
+-------------
+
+You can use the following to run some / all of the tests:
+
+    $> mvn test -P mongodb-tests

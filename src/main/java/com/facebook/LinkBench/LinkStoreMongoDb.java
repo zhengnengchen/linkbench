@@ -1,24 +1,39 @@
-/**
- * LinkStore implementation for MongoDB, using the 'doTxn' command to do transactions.
- */
-
 package com.facebook.LinkBench;
 
-import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.mongodb.*;
+import com.mongodb.ClientSessionOptions;
+import com.mongodb.MongoClient;
+import com.mongodb.MongoClientOptions;
+import com.mongodb.MongoClientURI;
+import com.mongodb.MongoCommandException;
+import com.mongodb.MongoCredential;
+import com.mongodb.ServerAddress;
+import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.*;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 
+import static com.mongodb.client.model.Aggregates.group;
+import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Projections.exclude;
+import static com.mongodb.client.model.Projections.include;
 import static com.mongodb.client.model.Updates.*;
+import static java.util.Arrays.asList;
 
-import com.mongodb.session.ClientSession;
 import org.bson.*;
 import org.bson.Document;
 
@@ -28,35 +43,49 @@ import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 
 
+/**
+ * LinkStore implementation for MongoDB, using {@link ClientSession#startTransaction()},
+ * {@link ClientSession#commitTransaction()} and {@link ClientSession#abortTransaction()}.
+ *
+ * @see com.mongodb.client.ClientSession
+ */
 public class LinkStoreMongoDb extends GraphStore {
 
     /* MongoDB database server configuration keys */
-    public static final String CONFIG_URL = "url";
-    public static final String CONFIG_HOST = "host";
-    public static final String CONFIG_PORT = "port";
-    public static final String CONFIG_USER = "user";
-    public static final String CONFIG_PASSWORD = "password";
-    public static final String AUTH_SOURCE = "authSource";
+    static final String CONFIG_URL = "url";
+    static final String CONFIG_HOST = "host";
+    static final String CONFIG_PORT = "port";
+    static final String CONFIG_USER = "user";
+    static final String CONFIG_PASSWORD = "password";
+    static final String CHECK_COUNT = "check_count";
+    static final String MAX_RETRIES = "max_retries";
+    static final String BULKINSERT_SIZE = "bulkinsert_size";
 
-    public static final int DEFAULT_BULKINSERT_SIZE = 1024;
+    // only valid for profiling the tests
+    static final String SKIP_TRANSACTIONS = "skip_transactions";
 
-    private static final boolean INTERNAL_TESTING = false;
+    static final int DEFAULT_BULKINSERT_SIZE = 1024;
+    static final boolean DEFAULT_CHECK_COUNT = false;
+    static final boolean DEFAULT_SKIP_TRANSACTIONS = false;
+    static final int DEFAULT_MAX_RETRIES = 16;
 
-    private static final int MAX_RETRIES = 128;
+    private boolean check_count = DEFAULT_CHECK_COUNT;
+    private boolean skip_transactions = DEFAULT_SKIP_TRANSACTIONS;
+
+    private static final long NODE_GEN_UNINITIALIZED = -1L;
 
     // In MongoDB, these will be "collections", which are the analog of SQL "tables". We call them
     // "tables" here to keep the naming convention consistent across different database benchmarks.
-    String linktable;
-    String counttable;
-    String nodetable;
+    private String linktable;
+    private String counttable;
+    private String nodetable;
 
-    String url;
-    String host;
-    int port;
-    String user;
-    char[] pwd;
-
-    Level debuglevel;
+    private String url;
+    private String host;
+    private int port;
+    private String user;
+    private char[] pwd;
+    private int max_retries;
 
     private ClientSession session;
     private MongoClient mongoClient;
@@ -64,37 +93,25 @@ public class LinkStoreMongoDb extends GraphStore {
     // A monotonically increasing counter used to assign unique graph node ids. We make it atomic in case it is
     // accessed from multiple threads. We use this since there is no default way to have an 'auto-incrementing' field
     // in MongoDB documents.
-    private static AtomicLong nodeIdGen = new AtomicLong(0);
+    private static AtomicLong nodeIdGen =  new AtomicLong(NODE_GEN_UNINITIALIZED);
 
-    private static AtomicLong txnNumberGen = new AtomicLong(0);
-
-    private Phase phase;
-
-    int bulkInsertSize = DEFAULT_BULKINSERT_SIZE;
+    private int bulkInsertSize = DEFAULT_BULKINSERT_SIZE;
 
     private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+    private boolean debug = false; // true if debug log level is enabled
 
-    public LinkStoreMongoDb() {
+    LinkStoreMongoDb() {
         super();
     }
 
-    public LinkStoreMongoDb(Properties props) throws IOException, Exception {
+    @SuppressWarnings("unused")
+    LinkStoreMongoDb(Properties props) {
         super();
         initialize(props, Phase.LOAD, 0);
     }
 
-    /**
-     * get a transaction number
-     * @return a new unique transaction number
-     */
-    private long getNextTxnNumber() {
-        long txnNumber = txnNumberGen.getAndAdd(1);
-        logger.debug(String.format("txnNumber % 8d", txnNumber));
-        return txnNumber;
-    }
-
-    public void initialize(Properties props, Phase currentPhase, int threadId) throws IOException, Exception {
-
+    public void initialize(Properties props, Phase phase, int threadId) {
+        // initialize the nodeIdGen value for the request phase, resetNodeStore will set the correct value for load
         // Retrieve names of database tables that will be used.
         counttable = ConfigUtil.getPropertyRequired(props, Config.COUNT_TABLE);
         if (counttable.equals("")) {
@@ -146,8 +163,19 @@ public class LinkStoreMongoDb extends GraphStore {
             }
         }
 
-        debuglevel = ConfigUtil.getDebugLevel(props);
-        phase = currentPhase;
+        if (props.containsKey(CHECK_COUNT)) {
+            check_count = ConfigUtil.getBool(props, CHECK_COUNT);
+        }
+
+        if (props.containsKey(SKIP_TRANSACTIONS)) {
+            skip_transactions = ConfigUtil.getBool(props, SKIP_TRANSACTIONS);
+        }
+
+        bulkInsertSize = ConfigUtil.getInt(props, BULKINSERT_SIZE, DEFAULT_BULKINSERT_SIZE);
+        max_retries = ConfigUtil.getInt(props, MAX_RETRIES, DEFAULT_MAX_RETRIES);
+
+        Level debuglevel = ConfigUtil.getDebugLevel(props);
+        debug = Level.DEBUG.isGreaterOrEqual(debuglevel);
 
         // Connect to database.
         try {
@@ -159,31 +187,32 @@ public class LinkStoreMongoDb extends GraphStore {
     }
 
     /**
-     * open a connection to the remote mongo server.
+     * Open a connection to the remote mongo server.
      *
      * <ul>
      *     <li>current session is closed</li>
      *     <li>new connection is immediately validated by running the serverStatus command</li>
      *     <li>a new session is created</li>
      * </ul>:
-     *
-     * @throws Exception
      */
-    private void openConnection() throws Exception {
+    private void openConnection() {
         if (session != null) {
             session.close();
             session = null;
         }
+        // url="mongodb://localhost:27017/?readPreference=primary&replicaSet=replset"
+        MongoClientOptions.Builder options = MongoClientOptions.builder()
+                .requiredReplicaSetName("replset");
 
         // Open connection to the server.
         if (url != null) {
-            mongoClient = new MongoClient(new MongoClientURI(url));
+            mongoClient = new MongoClient(new MongoClientURI(url, options));
         } else {
-            MongoCredential credential = null;
+            MongoCredential credentials = null;
             if(user != null) {
-                credential = MongoCredential.createCredential(user, "admin", pwd);
+                credentials = MongoCredential.createCredential(user, "admin", pwd);
             }
-            mongoClient = new MongoClient(new ServerAddress(host, port), credential, null);
+            mongoClient = new MongoClient(new ServerAddress(host, port), credentials, options.build());
         }
 
         // Run a basic status command to make sure the connection is created and working properly.
@@ -195,20 +224,27 @@ public class LinkStoreMongoDb extends GraphStore {
 
     @Override
     public void close() {
-        mongoClient.close();
+        if (session != null) {
+            session.close();
+            session = null;
+        }
+
+        if (mongoClient != null) {
+            mongoClient.close();
+            mongoClient = null;
+        }
     }
 
     @Override
     public void clearErrors(final int threadID) {
         logger.info("Closing and re-opening MongoDB client connection in threadID " + threadID);
 
-        mongoClient.close();
+        close();
 
         try {
             openConnection();
         } catch (Exception e) {
             e.printStackTrace();
-            return;
         }
     }
 
@@ -223,7 +259,7 @@ public class LinkStoreMongoDb extends GraphStore {
      *  These error codes are defined in MongoDB source code:
      *  https://github.com/mongodb/mongo/blob/master/src/mongo/base/error_codes.err
      *
-     *  TODO: Review error codes when full transaction support is implemented in MongoDB.
+     *  TODO: SERVER-35141: 'Update the linkbench driver implementation to use TransientTransactionError label'
      */
     private static HashSet<Integer> populateMongoRetryCodes() {
         HashSet<Integer> states = new HashSet<>();
@@ -234,30 +270,9 @@ public class LinkStoreMongoDb extends GraphStore {
         states.add(208);    // TooManyLocks
         states.add(225);    // TransactionTooOld
         states.add(226);    // AtomicityFailure
+        states.add(239);    // SnapshotTooOld. TODO check if this is retryable
+        states.add(246);    // SnapshotUnavailable. TODO check if this is retryable
         return states;
-    }
-
-    /**
-     * Create a BSON precondition object, suitable for use in a transaction statement. A precondition
-     * consists of a query, which should uniquely identify a document, if such a document exists, and a match statement,
-     * which defines whether or not the precondition passes. That is, the precondition is satisfied iff the document
-     * returned by the query satisfies the match statement.
-     *
-     * @param query
-     * @param match
-     * @return the precondition BSON object.
-     */
-    private BsonDocument createPrecondition(BsonDocument query, BsonDocument match, MongoNamespace ns) {
-        return new BsonDocument().append("q", query)
-            .append("res", match)
-            .append("ns", new BsonString(ns.toString()));
-    }
-
-    /**
-     * Predicate that determines whether a 'doTxn' error response is due to a failed pre-condition.
-     */
-    private boolean preConditionFailedError(String errMsg, int errCode) {
-        return errMsg.contains("preCondition failed") && errCode == 2;
     }
 
     /**
@@ -267,474 +282,238 @@ public class LinkStoreMongoDb extends GraphStore {
         return retryMongoCodes.contains(errCode);
     }
 
-    /**
-     * Execute a list of CRUD operations as a single atomic unit, only if all the given pre-conditions are satisfied.
-     * Until MongoDB supports full read/write transactions, this function utilizes the 'doTxn' command along with its
-     * provided "precondition" functionality to emulate this.
-     *
-     * A given transaction might fail for a number of reasons. If it fails due to an unsatisfied precondition, this
-     * function will return false. In this error case, a caller can be guaranteed that the
-     * transaction did not succeed, and no changes were made to the database. If the transaction fails for some other
-     * reason related to the driver or the server, this function will throw the corresponding exception, for the caller
-     * to handle. If the transaction fails due to a "retriable" error, the transaction will be retried indefinitely.
-     *
-     * NOTE 1: The performance of precondition checking will depend on existence of appropriate indexes.
-     * NOTE 2: For any 'update' operations in a transaction, the query (i.e. the 'o2' field) must identify a
-     * document by its '_id' field. This is because the 'doTxn' command does not presently support applying an
-     * update that does not uniquely specify a document by its '_id'.
-     * NOTE 3: This method creates a new session with a new txnNumber per invocation. The session is closed
-     * at the end of the method.
-     *
-     * @param operations list of operations to execute.
-     * @param preConditions a set of preconditions that must be true in order for the transaction to execute.
-     * @return If the transaction succeeds, returns true. If it fails due to a pre-condition check, it will return false.
-     * @throws Exception if transaction fails for some reason other than an unsatisfied pre-condition.
-     */
-    private boolean doTxnWithPreconditions(
-        MongoDatabase database,
-        List<BsonDocument> operations,
-        List<BsonDocument> preConditions) throws Exception
-    {
-        int attempt = 1;
-        BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("doTxn", new BsonArray(operations));
-        cmdObj.append("preCondition", new BsonArray(preConditions));
-
-        while (true) {
-            try {
-                cmdObj.append("txnNumber", new BsonInt64(getNextTxnNumber()));
-                Document res = database.runCommand(session, cmdObj);
-                assert (res.getDouble("ok") == 1.0);
-                return true;
-            } catch (MongoCommandException e) {
-                // If we failed due to an unsatisfied pre-condition, return false.
-                if (preConditionFailedError(e.getMessage(), e.getCode())) {
-                    return false;
-                }
-                // If we failed due to a non-retryable error, throw the exception.
-                if (!isRetryableError(e.getCode())) {
-                    throw e;
-                }
-                attempt++;
-                if (attempt > MAX_RETRIES) {
-                    String message = String.format("Too Many retries");
-                    logger.info(message, e);
-                    throw new RuntimeException(message, e);
-                }
-            }
-        }
-    }
-
-    /**
-     * Adds a given link to the database and updates counts atomically, only if the link does not already exist.
-     * @param dbid
-     * @param link
-     * @param noinverse
-     * @return If the link already exists, does not modify the database and returns false. If the link was added,
-     * returns true. If the operation fails for a reason other than the link not existing, will throw an Exception.
-     * @throws Exception
-     */
-    private boolean addLinkIfNotExists(final String dbid, final Link link, final boolean noinverse) throws Exception {
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> linkCollection = database.getCollection(linktable);
-        MongoCollection<Document> countCollection = database.getCollection(counttable);
-
-        // We build the INSERT_LINK operation and the UPDATE_COUNT operation as part of the
-        // same transaction. We aren't able to do transactional updates using 'doTxn' that target a
-        // document by fields other than '_id', so that is why we are using the concatenated unique fields of the
-        // link object (id1, link_type, id2) as its '_id'.
-
-        // INSERT_LINK OP.
-        BsonDocument linkId = linkBsonId(link);
-        BsonDocument linkBson = linkToBson(link).append("_id", linkId);
-        BsonDocument insertLinkOp = createInsertOp(linkBson, linkCollection.getNamespace());
-
-        // If the new link is hidden, we don't count it.
-        long updateCount = link.visibility == VISIBILITY_DEFAULT ? 1 : 0;
-
-        BsonDocument countId = countBsonId(link.id1, link.link_type);
-
-        // UPDATE_COUNT OP.
-        BsonDocument updateQ = eq("_id", countId)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument countUpdate = combine(
-            set("_id", countId),
-            set("id1", new BsonInt64(link.id1)),
-            set("link_type", new BsonInt64(link.link_type)),
-            set("time", new BsonInt64(link.time)),
-            inc("count", updateCount),
-            inc("version", 1))
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument updateCountOp = createUpdateOp(updateQ, countUpdate, countCollection.getNamespace());
-
-        // Precondition: link mustn't already exist.
-        BsonDocument preConditionQ = eq("_id", linkId)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        // Precondition match is satisfied only if there is no document returned by the query.
-        BsonDocument preConditionMatch = exists("id1", false)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument preCondition = createPrecondition(preConditionQ, preConditionMatch, linkCollection.getNamespace());
-        List<BsonDocument> opsToApply = Arrays.asList(insertLinkOp, updateCountOp);
-
-        return doTxnWithPreconditions(database, opsToApply, Collections.singletonList(preCondition));
-    }
-
-    /**
-     * Updates a given link only if the link exists and if the link's current visibility matches the given visibility level.
-     * @param dbid
-     * @param link
-     * @param noinverse
-     * @return If the link exists with the correct visibility, updates the link and returns true. If the link exists
-     * without the correct visibility, does nothing and returns false.
-     * @throws Exception
-     */
-    private boolean updateLinkIfVisibility(
-        final String dbid,
-        final Link link,
-        final boolean noinverse,
-        byte currentVisibility) throws Exception
-    {
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> linkCollection = database.getCollection(linktable);
-        MongoCollection<Document> countCollection = database.getCollection(counttable);
-
-        // UPDATE_LINK OP.
-
-        BsonDocument linkId = linkBsonId(link);
-        BsonDocument updateLinkQ = eq("_id", linkId)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument linkUpdate = combine(
-            set("visibility", Byte.toString(link.visibility)),
-            set("time", link.time),
-            set("data", link.data),
-            set("version", link.version))
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument updateLinkOp = createUpdateOp(updateLinkQ, linkUpdate, linkCollection.getNamespace());
-
-        // UPDATE_COUNT OP.
-
-        // If we update the link and it was previously hidden, we increment the count. In the opposite case, we
-        // decrement the count. If visibility doesn't change, don't increment or decrement the count.
-        int updateCount;
-        if (currentVisibility == link.visibility) {
-            updateCount = 0;
-        } else {
-            // 'link.visibility' will be the new visibility of the link if the update transaction succeeds.
-            updateCount = link.visibility == VISIBILITY_DEFAULT ? 1 : -1;
-        }
-
-        BsonDocument countId = countBsonId(link.id1, link.link_type);
-        BsonDocument updateQ = eq("_id", countId)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument countUpdate = combine(
-            set("_id", countId),
-            set("id1", new BsonInt64(link.id1)),
-            set("link_type", new BsonInt64(link.link_type)),
-            set("time", new BsonInt64(link.time)),
-            inc("count", updateCount),
-            inc("version", 1))
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument updateCountOp = createUpdateOp(updateQ, countUpdate, countCollection.getNamespace());
-
-        // Precondition: link must exist and have the right visibility.
-        BsonDocument preConditionQ = eq("_id", linkId)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        byte[] currVisibility = { currentVisibility };
-        BsonDocument preConditionMatch =
-            and(
-                eq("id1", link.id1),
-                eq("link_type", link.link_type),
-                eq("id2", link.id2),
-                eq("visibility", Byte.toString(currentVisibility)))
-                .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument preConditionLinkExistsWithVisibility =
-            createPrecondition(preConditionQ, preConditionMatch, linkCollection.getNamespace());
-        List<BsonDocument> opsToApply = Arrays.asList(updateLinkOp, updateCountOp);
-
-        return doTxnWithPreconditions(
-            database,
-            opsToApply,
-            Collections.singletonList(preConditionLinkExistsWithVisibility));
-    }
-
     @Override
-    public boolean addLink(final String dbid, final Link a, final boolean noinverse) throws Exception {
-        logger.debug("addLink " + a.id1 +
-            "." + a.id2 +
-            "." + a.link_type);
-
-        // Until MongoDB fully supports read/write transactions, we don't have any way to make a decision inside of a transaction
-        // based on the result of an earlier operation inside that transaction. For example, if we try to add a visible
-        // link and it already exists with default visibility, we don't need to update the count table. On the other hand,
-        // if a new link was added, then we need to update the counts. To circumvent this, we separate the ADD_LINK operation
-        // into distinct cases, that only succeed (atomically) if the proper preconditions are met. We can continually
-        // retry the below sequence of operations until success. If any operation fails due to a pre-condition check, we know
-        // that the database was not modified, so it is safe to try again.
-
-        while (true) {
-            // Try to add the link if it doesn't already exist. If this succeeds, we have nothing further to do. If it
-            // returns false, then that implies the link already exists, so we need to attempt a link update.
-            if (addLinkIfNotExists(dbid, a, noinverse)) {
-                return true;
-            }
-
-            // If the link already exists, try to update it only if it is currently visible.
-            if (updateLinkIfVisibility(dbid, a, noinverse, VISIBILITY_DEFAULT)) {
-                return false;
-            }
-
-            // If the link already exists, try to update it only if it is currently hidden.
-            if (updateLinkIfVisibility(dbid, a, noinverse, VISIBILITY_HIDDEN)) {
-                return false;
-            }
-        }
-    }
-
-    /**
-     * Deletes a link specified by the given parameters only if it exists in the database and it's current visibility matches
-     * 'visibility'. If expunge==true, the link is always physically deleted from the database. Otherwise, it's
-     * visibility is changed to HIDDEN. If a visible link is deleted then the associated counts must be updated.
-     * @param dbid
-     * @param id1
-     * @param link_type
-     * @param id2
-     * @param noinverse
-     * @param expunge
-     * @param visibility the required visibility of the existing link.
-     * @return
-     * @throws Exception
-     */
-    private boolean deleteLinkIfExistsWithVisibility(
-        final String dbid,
-        final long id1,
-        final long link_type,
-        final long id2,
-        final boolean noinverse,
-        final boolean expunge,
-        byte visibility) throws Exception
-    {
-
+    public boolean addLink(final String dbid, final Link link, final boolean noinverse) {
+        logger.debug("addLink " + link.id1 +
+            "." + link.id2 +
+            "." + link.link_type);
         MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> linkCollection = database.getCollection(linktable);
-        MongoCollection<Document> countCollection = database.getCollection(counttable);
+        final MongoCollection<Document> linkCollection = database.getCollection(linktable);
+        final MongoCollection<Document> countCollection = database.getCollection(counttable);
 
-        // DELETE_LINK operation. Only delete the link if link is found by (id1, id2, link_type) match.
-        BsonDocument linkId = linkBsonId(id1, link_type, id2);
-        BsonDocument findLinkPred =
-            eq("_id", linkId).toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
 
-        BsonDocument deleteLinkOp;
+        // Add link to the store.
+        //    Update the the count table if visibility changes.
+        //    Update link time, version, etc. in the case of a pre-existing link.
+        CommandBlock<Boolean> block = new CommandBlock<Boolean>() {
+            @Override
+            public Boolean call() {
+                final Bson linkId = linkBsonId(link);
 
-        // If expunge==true, then we physically remove the link from the database, no matter what.
-        if (expunge) {
-            deleteLinkOp = createDeleteOp(findLinkPred, linkCollection.getNamespace());
-        }
-        // If expunge==false, then we just hide the link.
-        else {
-            BsonDocument update = set("visibility", Byte.toString(VISIBILITY_HIDDEN))
-                .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-            deleteLinkOp = createUpdateOp(findLinkPred, update, linkCollection.getNamespace());
-        }
+                Bson projection = combine(include("visibility"), exclude("_id"));
+                Bson update = combine(set("visibility", new BsonInt32(link.visibility)),
+                        combine(
+                                setOnInsert("_id", linkId),
+                                setOnInsert("data", new BsonBinary(link.data)),
+                                setOnInsert("time", new BsonInt64(link.time)),
+                                setOnInsert("version", new BsonInt32(link.version))));
+                FindOneAndUpdateOptions options = new FindOneAndUpdateOptions().
+                                                        upsert(true).
+                                                        projection(projection).
+                                                        returnDocument(ReturnDocument.BEFORE);
+                Document preexisting = linkCollection.findOneAndUpdate(session, linkId, update, options);
 
-        ArrayList<BsonDocument> opsToApply = new ArrayList<>();
-        opsToApply.add(deleteLinkOp);
+                if ((preexisting == null  &&  link.visibility == VISIBILITY_DEFAULT) ||
+                        (preexisting != null && preexisting.getInteger("visibility") != link.visibility)) {
+                    final Bson filter = countBsonId(link.id1, link.link_type);
 
-        // UPDATE_COUNT operation. Only update the counts if it would have an effect i.e. if the link exists and is
-        // visible.
-        int countInc = visibility == VISIBILITY_DEFAULT ? -1 : 0;
-        if (countInc != 0) {
-            BsonDocument countId = countBsonId(id1, link_type);
-            BsonDocument updateQ = eq("_id", countId)
-                .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
+                    final long increment = link.visibility == VISIBILITY_DEFAULT ? 1L : -1L;
+                    update = combine(
+                            // TODO: SERVER-32442 check set _id and this functionality
+                            set("_id", filter),
+                            inc("count", increment),
+                            set("time", new BsonInt64(link.time)),
+                            inc("version", 1)
+                    );
+                    countCollection.updateOne(session, filter, update, new UpdateOptions().upsert(true));
+                }
 
-            long currentTime = (new Date()).getTime();
-            BsonDocument countUpdate = combine(
-                set("time", new BsonInt64(currentTime)),
-                inc("count", -1),
-                inc("version", 1))
-                .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
+                if (preexisting != null) {
+                    final Bson filter = linkBsonId(link);
+                    update = combine(
+                            set("data", new BsonBinary(link.data)),
+                            set("time", new BsonInt64(link.time)),
+                            set("version", new BsonInt32(link.version)));
 
-            BsonDocument updateCountOp = createUpdateOp(updateQ, countUpdate, countCollection.getNamespace());
+                    linkCollection.updateOne(session, filter, update);
+                }
+                if (check_count) {
+                    testCount(dbid, linktable, counttable, link.id1, link.link_type);
+                }
+                return preexisting != null;
+            }
 
-            // Include the op to update counts.
-            opsToApply.add(updateCountOp);
-        }
-
-        // Precondition: link must exist and visibility must be correct.
-        BsonDocument preConditionQ = eq("_id", linkId)
-            .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-        BsonDocument preConditionMatch =
-            and(
-                eq("id1", id1),
-                eq("link_type", link_type),
-                eq("id2", id2),
-                eq("visibility", Byte.toString(visibility)))
-                .toBsonDocument(BsonDocument.class, MongoClient.getDefaultCodecRegistry());
-
-        BsonDocument preCondition = createPrecondition(preConditionQ, preConditionMatch, linkCollection.getNamespace());
-        return doTxnWithPreconditions(database, opsToApply, Collections.singletonList(preCondition));
-
+            @Override
+            public String getName() {
+                return "addLink";
+            }
+        };
+        block = makeTransactional(block);
+        block = makeRetryable(block);
+        Boolean result = executeCommandBlock(block);
+        return result;
     }
 
     @Override
     public boolean deleteLink(
-        final String dbid,
-        final long id1,
-        final long link_type,
-        final long id2,
-        final boolean noinverse,
-        final boolean expunge)
-        throws Exception
+            final String dbid,
+            final long id1,
+            final long link_type,
+            final long id2,
+            final boolean noinverse,
+            final boolean expunge)
     {
+        MongoDatabase database = mongoClient.getDatabase(dbid);
+        final MongoCollection<Document> linkCollection = database.getCollection(linktable);
+        final MongoCollection<Document> countCollection = database.getCollection(counttable);
 
-        // CASE 1: Link exists and has VISIBILITY_DEFAULT.
-        if (deleteLinkIfExistsWithVisibility(dbid, id1, link_type, id2, noinverse, expunge, VISIBILITY_DEFAULT)) {
-            return true;
-        }
+        final BsonDocument linkId = linkBsonId(id1, link_type, id2);
+        CommandBlock<Boolean> block = new CommandBlock<Boolean>() {
 
-        // CASE 2: Link exists and has VISIBILITY_HIDDEN.
-        if (deleteLinkIfExistsWithVisibility(dbid, id1, link_type, id2, noinverse, expunge, VISIBILITY_HIDDEN)) {
-            return true;
-        }
+            @Override
+            public Boolean call() {
+                // Attempt to mark a link as hidden or completely expunge.
+                // Update the count If a link was hidden or a visible link was delete.
+                Bson projection = combine(include("visibility"), exclude("_id"));
 
-        // CASE 3: Link does not exist. Do nothing.
-        return true;
+                Document previous;
+                if (!expunge) {
+                    FindOneAndUpdateOptions options = new FindOneAndUpdateOptions().
+                                                            projection(projection).
+                                                            returnDocument(ReturnDocument.BEFORE);
+                    previous = linkCollection.findOneAndUpdate(session,
+                                                               linkId,
+                                                               set("visibility", VISIBILITY_HIDDEN),
+                                                               options);
+                } else {
+                     FindOneAndDeleteOptions options = new FindOneAndDeleteOptions().projection(projection);
+                     previous = linkCollection.findOneAndDelete(session, linkId, options);
+                }
 
+                if (previous != null && previous.getInteger("visibility") == VISIBILITY_DEFAULT) {
+                    decrementLinkCount(id1, link_type);
+                }
+                return previous != null;
+            }
+
+            private void decrementLinkCount(long id, long link_type) {
+                BsonDocument countId = countBsonId(id, link_type);
+                long currentTime = (new Date()).getTime();
+                Bson update = combine(
+                        setOnInsert("_id", countId),
+                        setOnInsert("id", id),
+                        setOnInsert("link_type", link_type),
+                        inc("count", -1L),
+                        set("time", new BsonInt64(currentTime)),
+                        inc("version", 1L));
+                final FindOneAndUpdateOptions options = new FindOneAndUpdateOptions().upsert(true);
+                Document result = countCollection.findOneAndUpdate(session, countId, update, options);
+                long count = result.getLong("count");
+                if (count < -1L) {
+                    throw new CommandBlockException("count less than -1: " + result);
+                }
+                if (check_count) {
+                    testCount(dbid, linktable, counttable, id1, link_type);
+                }
+            }
+
+            @Override
+            public String getName() {
+                return "deleteLink";
+            }
+        };
+        block = makeTransactional(block);
+        block = makeRetryable(block);
+        return executeCommandBlock(block);
     }
 
+    /**
+     * This is method is for testing / validation purposes only. It is only ever called if the check_count property is
+     * set to true. It does not run in a transaction by default but it should be called from within a transaction.
+     *
+     * For example
+     *    $> ./bin/linkbench -Dcheck_count=true <OTHER PARAMS>
+     *
+     * The method compares the number of visible links matching id and link_type with the sum of the
+     * counts matching id and link_type.
+     *
+     * @param dbid the database name
+     * @param assoctable the link collection name
+     * @param counttable the count collection name
+     * @param id the value for the link collection id1 and count table id
+     * @param link_type the type for the query
+     */
+    private void testCount(String dbid,
+                           String assoctable, String counttable,
+                           long id, long link_type) {
+        MongoDatabase database = mongoClient.getDatabase(dbid);
+        MongoCollection<Document> assocCollection = database.getCollection(assoctable);
+        MongoCollection<Document> countCollection = database.getCollection(counttable);
+
+        AggregateIterable<Document> iterable = assocCollection.aggregate(session, asList(
+            match(combine(eq("id1",id),
+                          eq("link_type", link_type),
+                          eq("visibility", new BsonInt32(VISIBILITY_DEFAULT)))),
+            group(null, Accumulators.sum("count", 1L))
+        ));
+        long count = 0L;
+        Document result = iterable.first();
+        if (result != null) {
+            count = result.getLong("count");
+        } else {
+            logger.warn("testCount: null count");
+        }
+
+        iterable = countCollection.aggregate(session, asList(
+                match(combine(eq("id",id), eq("link_type", link_type))),
+                group(null,
+                        Accumulators.sum("total", "$count"),
+                        Accumulators.sum("instances", 1L))
+        ));
+        long total = 0;
+        result = iterable.first();
+        if (result != null) {
+            total = result.getLong("total");
+        } else {
+            logger.warn("testCount: null total");
+        }
+
+        if (count != total) {
+            throw new CommandBlockException("Data inconsistency between " + assoctable + "(" + count + ") " +
+                    " and " + counttable + "(" + total + ")");
+        }
+    }
+
+    // not called anywhere, addLink is called directly in LinkBenchRequest
     @Override
-    public boolean updateLink(final String dbid, final Link a, final boolean noinverse) throws Exception {
+    public boolean updateLink(final String dbid, final Link a, final boolean noinverse) {
         return !addLink(dbid, a, noinverse);
     }
 
-    /**
-     * Given a Link object, or the unique fields of a link, create a BSON object suitable for use as that link's '_id'
-     * field.
-     */
-    private BsonDocument linkBsonId(Link link) {
-        return linkBsonId(link.id1, link.link_type, link.id2);
-    }
-
-    private BsonDocument linkBsonId(long id1, long link_type, long id2) {
-        return new BsonDocument()
-            .append("id1", new BsonInt64(id1))
-            .append("link_type", new BsonInt64(link_type))
-            .append("id2", new BsonInt64(id2));
-    }
-
-    /**
-     * Given a Count object, or the unique fields of a count, create a BSON object suitable for use as that count's '_id'
-     * field.
-     */
-    private BsonDocument countBsonId(long id1, long link_type) {
-        return new BsonDocument()
-            .append("id1", new BsonInt64(id1))
-            .append("link_type", new BsonInt64(link_type));
-    }
-
-    private BsonDocument countBsonId(LinkCount count) {
-        return countBsonId(count.id1, count.link_type);
-    }
-
-    /**
-     * Given a Link object, convert it to a BSON representation. Returns an object without an '_id' field.
-     */
-    private BsonDocument linkToBson(Link link) {
-        BsonDocument linkObj = new BsonDocument();
-        linkObj
-            .append("id1", new BsonInt64(link.id1))
-            .append("link_type", new BsonInt64(link.link_type))
-            .append("id2", new BsonInt64(link.id2))
-            // Serialize 'visibility' byte as a String.
-            .append("visibility", new BsonString(Byte.toString(link.visibility)))
-            .append("version", new BsonInt32(link.version))
-            .append("time", new BsonInt64(link.time))
-            .append("data", new BsonBinary(link.data));
-
-        return linkObj;
-    }
-
-    /**
-     * Given a document representing a Link, parse it into a Link object and return it.
-     */
-    private Link linkFromBson(Document linkDoc) {
-
-        // Parse the retrieved link object.
-        Link outLink = new Link(
-            linkDoc.getLong("id1"),
-            linkDoc.getLong("link_type"),
-            linkDoc.getLong("id2"),
-            Byte.parseByte(linkDoc.getString("visibility")),
-            ((Binary) linkDoc.get("data")).getData(),
-            linkDoc.getInteger("version"),
-            linkDoc.getLong("time"));
-
-        return outLink;
-    }
-
-    /**
-     * Helper methods to create operation objects that can be used inside of a transaction statement.
-     */
-    private BsonDocument createDeleteOp(BsonDocument deleteQ, MongoNamespace ns) {
-        return new BsonDocument().append("op", new BsonString("d"))
-            .append("o", deleteQ)
-            .append("ns", new BsonString(ns.toString()));
-    }
-
-    private BsonDocument createInsertOp(BsonDocument docToInsert, MongoNamespace ns) {
-        return new BsonDocument().append("op", new BsonString("i"))
-            .append("o", docToInsert)
-            .append("ns", new BsonString(ns.toString()));
-    }
-
-    private BsonDocument createUpdateOp(BsonDocument updateQuery, BsonDocument update, MongoNamespace ns) {
-        return new BsonDocument()
-            .append("op", new BsonString("u"))
-            .append("o", update)
-            .append("o2", updateQuery)
-            .append("b", new BsonBoolean(true)) // Enable upsert.
-            .append("ns", new BsonString(ns.toString()));
-    }
-
     @Override
-    public Link getLink(final String dbid, final long id1, final long link_type, final long id2) throws Exception {
+    public Link getLink(final String dbid, final long id1, final long link_type, final long id2) {
         MongoDatabase database = mongoClient.getDatabase(dbid);
         MongoCollection<Document> linkCollection = database.getCollection(linktable);
 
+        Link link = null;
         BsonDocument linkId = linkBsonId(id1, link_type, id2);
-        Bson pred = eq("_id", linkId);
-
-        MongoCursor<Document> cursor = linkCollection.find(pred).iterator();
-
-        // Link not found.
-        if (!cursor.hasNext()) {
-            return null;
-        }
-
-        Document linkDoc = cursor.next();
-
-        // Make sure the link type is correct.
-        if (linkDoc.getLong("link_type") != link_type) {
-            return null;
-        }
 
         // Parse the retrieved link object and return it.
-        // TODO: Consider implementing a custom codec for better performance.
-        return linkFromBson(linkDoc);
+        // TODO: Consider implementing a custom codec for better performance or cleaner code.
+        // But SERVER-32442 needs to be resolved first as the codec needs to be able to get or generate an
+        // _id value OR we would need to derive a new Link class with an _id field (except for node which
+        // has to use the id field or the value of the id field in _id).
+        Document linkDoc = linkCollection.find(linkId).first();
+
+        // Link not found.
+        if (linkDoc != null) {
+            link = linkFromBson(linkDoc);
+        }
+        return link;
     }
 
     @Override
-    public Link[] getLinkList(final String dbid, final long id1, final long link_type) throws Exception {
+    public Link[] getLinkList(final String dbid, final long id1, final long link_type) {
         return getLinkList(dbid, id1, link_type, 0, Long.MAX_VALUE, 0, rangeLimit);
     }
 
@@ -747,86 +526,51 @@ public class LinkStoreMongoDb extends GraphStore {
         final long maxTimestamp,
         final int offset,
         final int limit)
-        throws Exception
     {
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> linkCollection = database.getCollection(linktable);
+        final MongoDatabase database = mongoClient.getDatabase(dbid);
+        final MongoCollection<Document> linkCollection = database.getCollection(linktable);
 
         // Find the links, limited by min/max timestamp and sorted by timestamp (descending).
-        Bson pred = and(
+        final Bson pred = and(
             eq("id1", id1),
             eq("link_type", link_type),
             gte("time", minTimestamp),
             lte("time", maxTimestamp),
-            eq("visibility", new BsonString(Byte.toString(VISIBILITY_DEFAULT))));
+            eq("visibility", new BsonInt32(VISIBILITY_DEFAULT)));
 
-        MongoCursor<Document> cursor = linkCollection
-            .find(pred)
-            .sort(new Document("time", -1))
-            .skip(offset)
-            .limit(limit).iterator();
+        CommandBlock<List> block = new CommandBlock<List>() {
+            @Override
+            public List<Link> call() {
+                MongoCursor<Document> cursor = linkCollection
+                    .find(pred)
+                    .sort(new Document("time", -1))
+                    .skip(offset)
+                    .limit(limit).iterator();
 
-        List<Link> links = new ArrayList<>();
-        while (cursor.hasNext()) {
-            Document linkDoc = cursor.next();
-            links.add(linkFromBson(linkDoc));
+                List<Link> links = new ArrayList<>();
+                while (cursor.hasNext()) {
+                    Document linkDoc = cursor.next();
+                    links.add(linkFromBson(linkDoc));
+                }
+
+                return links;
+            }
+
+            @Override
+            public String getName() {
+                return "getLinkList";
+            }
+        };
+        block = makeTransactional(block);
+        block = makeRetryable(block);
+        List<Link> links = executeCommandBlock(block);
+
+        // Return array of links or null.
+        Link[] linkArr = null;
+        if (!links.isEmpty()) {
+            linkArr = links.toArray(new Link[links.size()]);
         }
-
-        // No links found.
-        if (links.size() == 0) {
-            return null;
-        }
-
-        // Return list of links as array.
-        Link[] linkArr = new Link[links.size()];
-        linkArr = links.toArray(linkArr);
         return linkArr;
-    }
-
-    /**
-     * Internal method: add links without updating the count.
-     *
-     * NOTE: This method creates a new session with a new txnNumber per invocation. The session is closed
-     * at the end of the method.
-     *
-     * @param dbid
-     * @param links the list of links to add
-     * @return the number of links added to the database.
-     * @throws Exception
-     */
-    private int addLinksNoCount(String dbid, List<Link> links) throws Exception {
-        long txnNumber =  getNextTxnNumber();
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> linkCollection = database.getCollection(linktable);
-        List<BsonDocument> insertOps = new ArrayList<>();
-
-        // Create a list of link insert operations suitable for the 'doTxn' command.
-        for (Link link : links) {
-            // Concatenate the unique fields of the link for its '_id', so we can query for it in transactional
-            // 'update' operations.
-            BsonDocument docToInsert = linkToBson(link).append("_id", linkBsonId(link));
-            BsonDocument insertOp = createInsertOp(docToInsert, linkCollection.getNamespace());
-            insertOps.add(insertOp);
-        }
-
-        // Run the 'doTxn' command.
-        BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("doTxn", new BsonArray(insertOps));
-        cmdObj.append("txnNumber", new BsonInt64(txnNumber));
-        cmdObj.append("allowAtomic", new BsonBoolean(true));
-        Document res = database.runCommand(session, cmdObj);
-
-        // Make sure the command succeeded and that all nodes were inserted.
-        if (res.getDouble("ok") != 1.0) {
-            throw new Exception("'doTxn' command failed.");
-        }
-
-        int nApplied = res.getInteger("applied");
-        if (nApplied != links.size()) {
-            throw new Exception("'doTxn' failed to bulk insert all nodes properly.");
-        }
-
-        return nApplied;
     }
 
     @Override
@@ -834,89 +578,132 @@ public class LinkStoreMongoDb extends GraphStore {
         return bulkInsertSize;
     }
 
-    public void addBulkLinks(String dbid, List<Link> a, boolean noinverse) throws Exception {
-        int nAdded = addLinksNoCount(dbid, a);
+    @Override
+    public void addBulkLinks(final String dbid, final List<Link> links, boolean noinverse) {
+        CommandBlock<BulkWriteResult> block = new CommandBlock<BulkWriteResult>() {
+            @Override
+            public BulkWriteResult call() {
+                if(links.isEmpty()) {
+                    return null;
+                }
+                MongoDatabase database = mongoClient.getDatabase(dbid);
+                final MongoCollection<Document> linkCollection = database.getCollection(linktable);
+                // TODO: consider retryable
+                final UpdateOptions options = new UpdateOptions().upsert(true);
+                final List<WriteModel<Document>> operations = new LinkedList<>();
+
+                for (Link link : links) {
+                    final Bson filter = linkBsonId(link);
+                    Bson update = combine(set("visibility", new BsonInt32(link.visibility)),
+                            combine(
+                                    setOnInsert("_id", filter),
+                                    setOnInsert("data", new BsonBinary(link.data)),
+                                    setOnInsert("time", new BsonInt64(link.time)),
+                                    setOnInsert("version", new BsonInt32(link.version))));
+
+                    UpdateOneModel<Document> operation = new UpdateOneModel<>(filter, update, options);
+                    operations.add(operation);
+                }
+                BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
+                BulkWriteResult result = linkCollection.bulkWrite(session, operations, bulkWriteOptions);
+                int upserts = result.getUpserts().size();
+                int matched = result.getMatchedCount();
+                if (matched != links.size() && upserts != links.size()) {
+                    throw new CommandBlockException("'bulkWrite' failed to bulk update all nodes properly.");
+                }
+                return result;
+            }
+
+            @Override
+            public String getName() {
+                return "addBulkLinks";
+            }
+        };
+        block = makeTransactional(block);
+        block = makeRetryable(block);
+        BulkWriteResult res = executeCommandBlock(block);
+        int nAdded = 0;
+        if(res != null)
+            nAdded = (res.getInsertedCount() + res.getUpserts().size());
         logger.trace("Added n=" + nAdded + " links");
     }
 
     /**
      * Add a batch of counts.
      *
-     * NOTE: This method creates a new session with a new txnNumber per invocation. The session is closed
-     * at the end of the method.
-     *
      * @param dbid the database name.
      * @param counts a list of link count objects.
-     * @throws Exception
      */
     @Override
-    public void addBulkCounts(String dbid, List<LinkCount> counts)
-        throws Exception {
-        long txnNumber =  getNextTxnNumber();
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> countCollection = database.getCollection(counttable);
-
-        List<BsonDocument> insertOps = new ArrayList<>();
-        for (LinkCount count : counts) {
-
-            BsonDocument countId = countBsonId(count);
-            BsonDocument insertDoc = new BsonDocument();
-            insertDoc
-                .append("_id", countId)
-                .append("id1", new BsonInt64(count.id1))
-                .append("link_type", new BsonInt64(count.link_type))
-                .append("version", new BsonInt64(count.version))
-                .append("time", new BsonInt64(count.time))
-                .append("count", new BsonInt64(count.count));
-
-            BsonDocument insertOp = new BsonDocument();
-            insertOp
-                .append("op", new BsonString("i"))
-                .append("o", insertDoc)
-                .append("ns", new BsonString(countCollection.getNamespace().toString()));
-
-            insertOps.add(insertOp);
+    public void addBulkCounts(String dbid, List<LinkCount> counts) {
+        if(counts.isEmpty()) {
+            logger.warn("addBulkCounts: counts=[] returning");
+            return;
         }
+        MongoDatabase database = mongoClient.getDatabase(dbid);
+        final MongoCollection<Document> countCollection = database.getCollection(counttable);
 
-        // Run the 'doTxn' command.
-        BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("doTxn", new BsonArray(insertOps));
-        cmdObj.append("txnNumber", new BsonInt64(txnNumber));
-        database.runCommand(session, cmdObj);
+        final List<WriteModel<Document>> operations = new ArrayList<>(counts.size());
+        final UpdateOptions options = new UpdateOptions().upsert(true);
+        for (LinkCount count : counts) {
+            final Bson filter = countBsonId(count);
+            // TODO: consider refactoring to common methods if sensible
+            Bson update = combine(
+                    setOnInsert("_id", filter),
+                    set("count", new BsonInt64(count.count)),
+                    set("version", new BsonInt64(count.version)),
+                    set("time", new BsonInt64(count.time))
+            );
+            UpdateOneModel<Document> operation = new UpdateOneModel<>(filter, update, options);
+            operations.add(operation);
+        }
+        CommandBlock<BulkWriteResult> block = new CommandBlock<BulkWriteResult>() {
+
+            @Override
+            public BulkWriteResult call() {
+                BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
+                return countCollection.bulkWrite(session, operations, bulkWriteOptions);
+            }
+            public String getName() {
+                return "addBulkCounts";
+            }
+        };
+        block = makeTransactional(block);
+        block = makeRetryable(block);
+        executeCommandBlock(block);
     }
 
     @Override
-    public long countLinks(final String dbid, final long id1, final long link_type) throws Exception {
+    public long countLinks(final String dbid, final long id1, final long link_type) {
         MongoDatabase database = mongoClient.getDatabase(dbid);
         MongoCollection<Document> countCollection = database.getCollection(counttable);
 
         // Find the right count entry.
-        Bson pred = and(
-            eq("id1", id1),
-            eq("link_type", link_type));
-
-        MongoCursor<Document> cursor = countCollection.find(pred).iterator();
-        if (!cursor.hasNext()) {
+        Bson filter = combine(eq("id", id1), eq("link_type", link_type));
+        Document document = countCollection.find(filter).first();
+        if (document == null) {
             // No count entry exists.
             return 0;
         } else {
-            // Return the count.
-            return cursor.next().getLong("count");
+            return document.getLong("count");
         }
 
     }
 
     @Override
-    public void resetNodeStore(final String dbid, final long startID) throws Exception {
+    public void resetNodeStore(final String dbid, final long startID) {
         // Drop and re-create the node store collection to clear out all objects, and then reset the node id counter.
         MongoDatabase database = mongoClient.getDatabase(dbid);
         database.getCollection(nodetable).drop();
         database.createCollection(nodetable);
+        MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
+        IndexOptions options = new IndexOptions().unique(true);
+        nodeCollection.createIndex(Indexes.ascending("id"), options);
         nodeIdGen = new AtomicLong(startID);
     }
 
     @Override
-    public long addNode(final String dbid, final Node node) throws Exception {
+    public long addNode(final String dbid, final Node node) {
         long[] nodeIds = bulkAddNodes(dbid, Collections.singletonList(node));
         return nodeIds[0];
     }
@@ -929,127 +716,302 @@ public class LinkStoreMongoDb extends GraphStore {
      *
      * @param dbid the database name.
      * @param nodes a list of node objects.
-     * @throws Exception
      */
     @Override
-    public long[] bulkAddNodes(String dbid, List<Node> nodes) throws Exception {
-        long txnNumber =  getNextTxnNumber();
+    public long[] bulkAddNodes(String dbid, final List<Node> nodes) {
         MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
-        List<BsonDocument> insertOps = new ArrayList<>();
+        final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
+        final List<InsertOneModel<Document>> insertOps = new ArrayList<>();
 
-        // Create a list of node insert operations suitable for the 'doTxn' command. We atomically pre-allocate a range
+        // MySql uses an auto incrementing id field so it avoids duplicate keys. The equivalent in MongoDb is to use an
+        // ObjectId, but this is not possible as the base implementation generates random node ids based on the
+        // configured range (startid1 to maxid1).
+        //
+        // In order to avoid duplicate key exceptions, nodeIdGen must be initialized with the last node id. The only
+        // reliable way is to get the current max value. Something like ConcurrentMap.computeIfAbsent or
+        // LongBinaryOperator would be a better way to do this but we are limited to Java 7.
+        //
+        // The following code may calculate nodeIdGen initial value multiple times at the start but it will only set it
+        // once and there is an index to support a quick calculation.
+        //
+        if (nodeIdGen.get() == NODE_GEN_UNINITIALIZED) {
+            logger.info("nodeIdGen initializing");
+            Document document = nodeCollection.find(new Document())
+                                 .projection(new Document("id", 1).append("_id", 0))
+                                 .sort(Indexes.descending("id"))
+                                 .limit(1)
+                                 .first();
+            long startId = 0;
+            if (document != null ){
+                startId = document.getLong("id") + 1;
+            }
+            if(nodeIdGen.compareAndSet(NODE_GEN_UNINITIALIZED, startId)) {
+                logger.info("nodeIdGen set " + startId);
+            }
+        }
+
+        // Create a list of node insert operations suitable for the transactions. We atomically pre-allocate a range
         // of node ids for the nodes we are going to insert. If the bulk node insertion fails, then these node ids will be
         // "missed" i.e. they will never be used again. We consider this acceptable, as long as, globally, node ids
         // always increase and no node id is ever assigned twice. This type of issue is similarly discussed in relation
         // to the MySQL "auto-increment" feature: https://dev.mysql.com/doc/refman/5.7/en/innodb-auto-increment-handling.html
         long nodeId = nodeIdGen.getAndAdd(nodes.size());
-        long[] assignedNodeIds = new long[nodes.size()];
+        final long[] assignedNodeIds = new long[nodes.size()];
 
         for (int i = 0; i < nodes.size(); i++) {
             Node node = nodes.get(i);
             assignedNodeIds[i] = nodeId;
-            BsonDocument docToInsert = new BsonDocument();
-            docToInsert
+            Document document = new Document()
                     .append("_id", new BsonInt64(nodeId))
+                    .append("id", new BsonInt64(nodeId))
                     .append("type", new BsonInt32(node.type))
                     .append("version", new BsonInt64(node.version))
                     .append("time", new BsonInt32(node.time))
                     .append("data", new BsonBinary(node.data));
 
-            BsonDocument insertOp = createInsertOp(docToInsert, nodeCollection.getNamespace());
-            insertOps.add(insertOp);
+            insertOps.add(new InsertOneModel<>(document));
             nodeId += 1;
         }
 
-        // Run the 'doTxn' command.
-        BsonDocument cmdObj = new BsonDocument();
-        cmdObj.append("doTxn", new BsonArray(insertOps));
-        cmdObj.append("txnNumber", new BsonInt64(txnNumber));
-        cmdObj.append("allowAtomic", new BsonBoolean(false));
-        Document res = database.runCommand(session, cmdObj);
-
-        // Make sure the command succeeded and that all nodes were inserted.
-        if (res.getDouble("ok") != 1.0) {
-            throw new Exception("'doTxn' command failed while trying to insert node ids " +
-                    Long.toString(nodeId) +
-                    "-" +
-                    Long.toString(nodeId + nodes.size() - 1));
-        }
-        if (res.getInteger("applied") != nodes.size()) {
-            throw new Exception("'doTxn' failed to bulk insert all nodes properly.");
+        BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
+        BulkWriteResult res = nodeCollection.bulkWrite(session, insertOps, bulkWriteOptions);
+        if (res.getInsertedCount() != nodes.size()) {
+            throw new CommandBlockException("'bulkAddNodes' failed to bulk insert all nodes properly.");
         }
         return assignedNodeIds;
     }
 
     @Override
-    public Node getNode(final String dbid, final int type, final long id) throws Exception {
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
+    public Node getNode(final String dbid, final int type, final long id) {
+        final MongoDatabase database = mongoClient.getDatabase(dbid);
+        final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
 
         // Lookup the node by id and type.
-        Bson query = and(eq("_id", id), eq("type", type));
-        MongoCursor<Document> cursor = nodeCollection.find(query).iterator();
-
-        // Node not found.
-        if (!cursor.hasNext()) {
-            return null;
-        }
+        final Bson query = and(eq("id", id), eq("type", type));
 
         // Fetch and parse the retrieved node object.
-        // TODO: Consider implementing a custom codec for better performance.
-        Document nodeDoc = cursor.next();
-        Binary bindata = (Binary) nodeDoc.get("data");
-        byte data[] = bindata.getData();
-        Node outNode = new Node(
-            nodeDoc.getLong("_id"),
-            nodeDoc.getInteger("type"),
-            nodeDoc.getLong("version"),
-            nodeDoc.getInteger("time"),
-            data);
-
-        return outNode;
+        // TODO: Consider implementing a custom codec for better performance or cleaner code.
+        // But SERVER-32442 needs to be resolved first as the codec needs to be able to get or generate an
+        // _id value OR we would need to derive a new Link class with an _id field (except for node which
+        // has to use the id field or the value of the id field in _id).
+        Document nodeDoc = nodeCollection.find(query).first();
+        Node node = null;
+        if (nodeDoc != null) {
+            Binary bindata = (Binary) nodeDoc.get("data");
+            byte data[] = bindata.getData();
+            node = new Node(nodeDoc.getLong("id"),
+                            nodeDoc.getInteger("type"),
+                            nodeDoc.getLong("version"),
+                            nodeDoc.getInteger("time"),
+                            data);
+        }
+        return node;
     }
 
     @Override
-    public boolean updateNode(final String dbid, final Node node) throws Exception {
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
+    public boolean updateNode(final String dbid, final Node node) {
+        final MongoDatabase database = mongoClient.getDatabase(dbid);
+        final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
 
-        Bson nodeUpdate = combine(
+        final Bson nodeUpdate = combine(
             set("type", new BsonInt32(node.type)),
             set("version", new BsonInt64(node.version)),
             set("time", new BsonInt32(node.time)),
             set("data", new BsonBinary(node.data)));
 
         // Update the node with the specified id.
-        UpdateResult res = nodeCollection.updateOne(eq("_id", node.id), nodeUpdate);
+        UpdateResult res = nodeCollection.updateOne(eq("id", node.id), nodeUpdate);
 
         // Node not found.
         if (res.getMatchedCount() == 0) {
             return false;
         }
 
-        // Node was updated.
-        if (res.getModifiedCount() == 1) {
-            return true;
-        }
-
-        // Consider this an error.
-        return false;
+        // Node was updated. Consider count != 1 an error.
+        return res.getModifiedCount() == 1;
     }
 
     @Override
-    public boolean deleteNode(final String dbid, final int type, final long id) throws Exception {
-        MongoDatabase database = mongoClient.getDatabase(dbid);
-        MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
+    public boolean deleteNode(final String dbid, final int type, final long id) {
+        final MongoDatabase database = mongoClient.getDatabase(dbid);
+        final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
 
         // Only delete the node if the 'id' and 'type' match.
-        Bson pred = and(eq("_id", id), eq("type", type));
+        final Bson pred = and(eq("id", id), eq("type", type));
+
         DeleteResult res = nodeCollection.deleteOne(pred);
 
         // Return true if the node was deleted, else return false.
         return (res.getDeletedCount() == 1);
+    }
+
+    // TODO : SERVER-32442 revisit id v id1 v id2 confusion
+
+    /**
+     * Given a Link object, or the unique fields of a link, create a BSON object suitable for use as that link's
+     * identifying field.
+     */
+    private BsonDocument linkBsonId(Link link) {
+        return linkBsonId(link.id1, link.link_type, link.id2);
+    }
+
+    private BsonDocument linkBsonId(long id1, long link_type, long id2) {
+        return new BsonDocument()
+                .append("link_type", new BsonInt64(link_type))
+                .append("id1", new BsonInt64(id1))
+                .append("id2", new BsonInt64(id2));
+    }
+
+    /**
+     * Given a Count object, or the unique fields of a count, create a BSON object suitable for use as that count's
+     * identifying field.
+     */
+    private BsonDocument countBsonId(long id, long link_type) {
+        return new BsonDocument()
+                .append("id", new BsonInt64(id))
+                .append("link_type", new BsonInt64(link_type));
+    }
+
+    private BsonDocument countBsonId(LinkCount count) {
+        return countBsonId(count.id1, count.link_type);
+    }
+
+    /**
+     * Given a document representing a Link, parse it into a Link object and return it.
+     */
+    private Link linkFromBson(Document linkDoc) {
+
+        // Parse the retrieved link object.
+        return new Link(
+                linkDoc.getLong("id1"),
+                linkDoc.getLong("link_type"),
+                linkDoc.getLong("id2"),
+                linkDoc.getInteger("visibility").byteValue(),
+                ((Binary) linkDoc.get("data")).getData(),
+                linkDoc.getInteger("version"),
+                linkDoc.getLong("time"));
+    }
+
+    /**
+     * Execute the block in a transaction.
+     *
+     * Start a new transaction and execute  task, if there is no exception, commit the transaction.
+     *
+     * @param task the task to execute.
+     * @param <T> the return value type.
+     * @return the return value from task.call()
+     * @see #populateMongoRetryCodes for a list of retryable error codes
+     */
+    private <T> CommandBlock<T> makeTransactional(final CommandBlock<T> task) {
+        if (skip_transactions)
+            return task;
+        return new CommandBlock<T>() {
+            @Override
+            public T call() {
+                session.startTransaction();
+                try {
+                    T result = task.call();
+                    session.commitTransaction();
+
+                    if (debug) {
+                        logger.debug(task.getName() + " returned " + result);
+                    }
+                    return result;
+                } catch (MongoCommandException e) {
+                    try {
+                        session.abortTransaction();
+                    } catch (IllegalStateException ise) {
+                        logger.debug("abortTransaction failed with '" +ise.getMessage() + "', rethrowing original exception '" + e.getMessage() +"'");
+                    }
+                    throw e;
+                }
+            }
+            @Override
+            public String getName()  {
+                return task.getName();
+            }
+        };
+    }
+
+    /**
+     * Execute the mongo command in a retryable block.
+     *
+     * If there is a non-retryable exception reraise it.
+     * If there is a retryable exception and and MAX_RETRIES is not exceeded, then retry.
+     * If there is a retryable exception and and MAX_RETRIES is exceeded, reraise exception.
+     *
+     * @param task the task to execute.
+     * @param <T> the return value type.
+     * @return the return value from task.call()
+     * @see #populateMongoRetryCodes for a list of retryable error codes
+     */
+    private <T> CommandBlock<T> makeRetryable(final CommandBlock<T> task) throws MongoCommandException, CommandBlockException {
+        return new CommandBlock<T>() {
+            @Override
+            public T call() throws MongoCommandException, CommandBlockException {
+                int retries = max_retries;
+                while (true) {
+                    retries --;
+                    try {
+                        return task.call();
+                    } catch (MongoCommandException e) {
+                        // If we failed due to a non-retryable error or max retries exceeded, rethrow the exception.
+                        if (retries <= 0  || !isRetryableError(e.getCode())) {
+                            logger.error(task.getName() + " failed after " + (max_retries - retries - 1) + " retries.", e);
+                            throw e;
+                        }
+                        logger.debug(task.getName() + "("+ retries + ") retrying " + e.getMessage());
+                    }
+                }
+            }
+
+            @Override
+            public String getName() {
+                return task.getName();
+            }
+        };
+    }
+
+    /**
+     * Execute the task.
+     *
+     * @param task the task to execute.
+     * @param <T> the return value type.
+     * @return the return value from task.call()
+     *
+     * @throws MongoCommandException reraise from driver
+     * @throws CommandBlockException something happened in the command block
+     */
+    private <T> T executeCommandBlock(CommandBlock<T> task)  throws MongoCommandException, CommandBlockException {
+        return task.call();
+    }
+
+    interface CommandBlock<T> {
+        /**
+         * Execute a block of mongo related commands. This block can be executed directly for no transactions or passed
+         * to executeCommandBlock to handle transactions / retries and exceptions
+         *
+         * @return the end result of the block
+         * @throws MongoCommandException if unable to compute a result
+         * @throws CommandBlockException if there was an error (link bench driver should track these)
+         * any other exception is likely a bug.
+         */
+        T call() throws MongoCommandException, CommandBlockException;
+
+        String getName();
+    }
+
+    class CommandBlockException extends RuntimeException {
+
+        /**
+         * Constructs a new exception with the specified detail message.
+         *
+         * @param   message   the detail message. The detail message is saved for
+         *          later retrieval by the {@link #getMessage()} method.
+         */
+        CommandBlockException(String message) {
+            super(message);
+        }
 
     }
 }
