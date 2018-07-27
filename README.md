@@ -145,6 +145,21 @@ Running it without arguments will show a brief help message:
      -l                              Execute loading stage of benchmark
      -r                              Execute request stage of benchmark
 
+Configuration Basics
+--------------------
+
+LinkBench now supports multiple database instances. The prefix for the instance
+names are set in the configuration file by the "dbprefix" option which can has
+a default value of "linkdb". When the value of dbprefix is linkdb, the instance
+names are linkdb0, linkdb1, etc. The number of instances is determined by
+the value of the "dbcount" option which has a default value of 1. So with the
+defaults there is one instance named "linkdb0". The commit that added this 
+feature is:
+https://github.com/mdcallag/linkbench/commit/0c191bffab8c6ace561211df63468ab32e26cf60
+
+Previously it only used one (instance == schema) and the name of the instance was
+set by the "dbid" option in the configuration file. The default for dbid was "linkdb".
+
 Building LinkBench for PostgreSQL
 ---------------------------------
 To build LinkBench for PostgreSQL use profile 'pgsql'
@@ -169,12 +184,12 @@ up a new MySQL database and running a benchmark with LinkBench.
 MySQL Setup
 -----------
 We need to create a new database and tables on the MySQL server.
-We'll create a new database called `linkdb` and
+We'll create a new database called `linkdb0` and
 the needed tables to store graph nodes, links and link counts.
 Run the following commands in the MySQL console:
 
-    create database linkdb;
-    use linkdb;
+    create database linkdb0;
+    use linkdb0;
 
     CREATE TABLE `linktable` (
       `id1` bigint(20) unsigned NOT NULL DEFAULT '0',
@@ -210,8 +225,8 @@ You may want to set up a special database user account for benchmarking:
 
     -- Note: replace 'linkbench'@'localhost' with 'linkbench'@'%' to allow remote connections
     CREATE USER 'linkbench'@'localhost' IDENTIFIED BY 'mypassword';
-    -- Grant all privileges on linkdb to this user
-    GRANT ALL ON linkdb TO 'linkbench'@'localhost'
+    -- Grant all privileges on linkdb0 to this user
+    GRANT ALL ON linkdb0 TO 'linkbench'@'localhost'
 
 If you want to obtain representative benchmark results, we highly
 recommend that you invest some time configuring and tuning MySQL.
@@ -240,7 +255,8 @@ and database you set up earlier. E.g.
     user = linkbench
     password = your_password
     port = 3306
-    dbid = linkdb
+    dbprefix = linkdb
+    dbcount = 1
 
 You can read through the settings in this file.  There are a lot of settings
 that control the benchmark itself, and the output of the LinkBench
@@ -498,11 +514,11 @@ To do this, there's ddl file in the project.
 PostgreSQL Setup
 -----------------
 We need to create a new database and tables on the PostgreSQL server.
-We'll create a new database called `linkdb` and
+We'll create a new database called `linkdb0` and
 the needed tables to store graph nodes, links and link counts.
 
 	1) run initdb (initialize database and templates) in shell
-		$> initdb -D linkdb
+		$> initdb -D linkdb0
 		$> createdb		# this command make a default database
 
 	2) Run the following commands in the postgreSQL console:
@@ -510,28 +526,28 @@ the needed tables to store graph nodes, links and link counts.
 		$> psql 
 
 		--CREATE DATABASE for linkbench 
-		DROP DATABASE IF EXISTS linkdb;
-		CREATE DATABASE linkdb ENCODING='latin1' ;
+		DROP DATABASE IF EXISTS linkdb0;
+		CREATE DATABASE linkdb0 ENCODING='latin1' ;
 
 		--drop user linkbench to create new one
 		DROP USER  IF EXISTS linkbench;
 
 		--	You may want to set up a special database user account for benchmarking:
 		CREATE USER linkbench password 'password';
-		-- Grant all privileges on linkdb to this user
-		GRANT ALL ON database linkdb TO linkbench;
+		-- Grant all privileges on linkdb0 to this user
+		GRANT ALL ON database linkdb0 TO linkbench;
 
-	3) Connect to linkdb and create tables and index
+	3) Connect to linkdb0 and create tables and index
 		
 		$> #conn postgresql linkbench/password
-    $> psql -Ulinkbench linkdb
+    $> psql -Ulinkbench linkdb0
 
-		--add Schema keep the same query style (dbid.table_name)
-		DROP SCHEMA IF EXISTS linkdb CASCADE; 
-		CREATE SCHEMA linkdb;
+		--add Schema keep the same query style (X.table_name)
+		DROP SCHEMA IF EXISTS linkdb0 CASCADE; 
+		CREATE SCHEMA linkdb0;
 
 		--FIXME:Need to make it partitioned by key id1 %16
-		CREATE TABLE linkdb.linktable (
+		CREATE TABLE linkdb0.linktable (
 				id1 numeric(20) NOT NULL DEFAULT '0',
 				id2 numeric(20) NOT NULL DEFAULT '0',
 				link_type numeric(20) NOT NULL DEFAULT '0',
@@ -543,10 +559,10 @@ the needed tables to store graph nodes, links and link counts.
 				);
 
 		-- this is index for linktable
-		CREATE INDEX id1_type on linkdb.linktable(
+		CREATE INDEX id1_type on linkdb0.linktable(
 				id1,link_type,visibility,time,id2,version,data);
 
-		CREATE TABLE linkdb.counttable (
+		CREATE TABLE linkdb0.counttable (
 				id numeric(20) NOT NULL DEFAULT '0',
 				link_type numeric(20) NOT NULL DEFAULT '0',
 				count int NOT NULL DEFAULT '0',
@@ -555,7 +571,7 @@ the needed tables to store graph nodes, links and link counts.
 				PRIMARY KEY (id,link_type)
 				);
 
-		CREATE TABLE linkdb.nodetable (
+		CREATE TABLE linkdb0.nodetable (
 				id BIGSERIAL NOT NULL,
 				type int NOT NULL,
 				version numeric NOT NULL,
