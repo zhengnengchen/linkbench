@@ -200,13 +200,19 @@ public class LinkStoreMongoDb extends GraphStore {
             session.close();
             session = null;
         }
+
+        // If a url is provided, it is used as is. If not, we add an option that requires the
+        // MongoDB cluster to be a replicaset. Transactions can only be used on a mongod that has an
+        // oplog. Note that if user didn't provide a url, the replSetName must literally be set to
+        // "replset".
+
         // url="mongodb://localhost:27017/?readPreference=primary&replicaSet=replset"
         MongoClientOptions.Builder options = MongoClientOptions.builder()
                 .requiredReplicaSetName("replset");
 
         // Open connection to the server.
         if (url != null) {
-            mongoClient = new MongoClient(new MongoClientURI(url, options));
+            mongoClient = new MongoClient(new MongoClientURI(url));
         } else {
             MongoCredential credentials = null;
             if(user != null) {
