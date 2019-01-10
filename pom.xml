@@ -82,8 +82,7 @@
         <dependency>
             <groupId>org.mongodb</groupId>
             <artifactId>mongodb-driver</artifactId>
-            <!-- TODO: SERVER-35142: 'update linkbench to use released 3.8.0 java driver'-->
-            <version>3.8.0-beta2</version>
+            <version>3.8.2</version>
         </dependency>
 
     </dependencies>
