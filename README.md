@@ -623,8 +623,10 @@ create on a set of SQL tables. The indexes that are used for the standard MongoD
 benchmark can be created with the following commands in the Mongo shell:
 
     use linkdb
+    db.linktable.createIndex({id1: 1, link_type: 1, id2: 1}, {unique: true});
     db.linktable.createIndex({id1: 1, link_type: 1, time: 1, visibility: 1});
-    db.counttable.createIndex({id1: 1, link_type: 1})
+    db.counttable.createIndex({id: 1, link_type: 1}, {unique: true});
+    db.nodetable.createIndex({id: 1}, {unique: true});
      
 Here are examples of Node, Link, and Count documents, as they will appear in the database:
     

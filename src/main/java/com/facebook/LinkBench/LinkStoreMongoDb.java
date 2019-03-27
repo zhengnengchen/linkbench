@@ -698,13 +698,9 @@ public class LinkStoreMongoDb extends GraphStore {
 
     @Override
     public void resetNodeStore(final String dbid, final long startID) {
-        // Drop and re-create the node store collection to clear out all objects, and then reset the node id counter.
+        // Remove all documents from the node store collection, and then reset the node id counter.
         MongoDatabase database = mongoClient.getDatabase(dbid);
-        database.getCollection(nodetable).drop();
-        database.createCollection(nodetable);
-        MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
-        IndexOptions options = new IndexOptions().unique(true);
-        nodeCollection.createIndex(Indexes.ascending("id"), options);
+        database.getCollection(nodetable).deleteMany(new Document());
         nodeIdGen = new AtomicLong(startID);
     }
 
