@@ -1,12 +1,16 @@
 package com.facebook.LinkBench;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.mongodb.ClientSessionOptions;
@@ -26,6 +30,17 @@ import com.mongodb.client.model.*;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 
+import org.bson.BsonBinary;
+import org.bson.BsonDocument;
+
+import com.mongodb.AutoEncryptionSettings;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.ConnectionString;
+import com.mongodb.ClientEncryptionSettings;
+import com.mongodb.client.model.vault.DataKeyOptions;
+import com.mongodb.client.vault.ClientEncryptions;
+import com.mongodb.client.vault.ClientEncryption;
+
 import static com.mongodb.client.model.Aggregates.group;
 import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Filters.*;
@@ -33,6 +48,8 @@ import static com.mongodb.client.model.Projections.exclude;
 import static com.mongodb.client.model.Projections.include;
 import static com.mongodb.client.model.Updates.*;
 import static java.util.Arrays.asList;
+
+import java.nio.ByteBuffer;
 
 import org.bson.*;
 import org.bson.Document;
@@ -42,6 +59,21 @@ import org.apache.log4j.Logger;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 
+class UuidUtils {
+    public static UUID asUuid(byte[] bytes) {
+      ByteBuffer bb = ByteBuffer.wrap(bytes);
+      long firstLong = bb.getLong();
+      long secondLong = bb.getLong();
+      return new UUID(firstLong, secondLong);
+    }
+
+    public static byte[] asBytes(UUID uuid) {
+      ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
+      bb.putLong(uuid.getMostSignificantBits());
+      bb.putLong(uuid.getLeastSignificantBits());
+      return bb.array();
+    }
+  }
 
 /**
  * LinkStore implementation for MongoDB, using {@link ClientSession#startTransaction()},
@@ -60,6 +92,7 @@ public class LinkStoreMongoDb extends GraphStore {
     static final String CHECK_COUNT = "check_count";
     static final String MAX_RETRIES = "max_retries";
     static final String BULKINSERT_SIZE = "bulkinsert_size";
+    static final String FLE_ENABLE = "fle_enable";
 
     // only valid for profiling the tests
     static final String SKIP_TRANSACTIONS = "skip_transactions";
@@ -86,6 +119,7 @@ public class LinkStoreMongoDb extends GraphStore {
     private String user;
     private char[] pwd;
     private int max_retries;
+    private boolean use_encryption = false;
 
     private ClientSession session;
     private MongoClient mongoClient;
@@ -108,6 +142,194 @@ public class LinkStoreMongoDb extends GraphStore {
     LinkStoreMongoDb(Properties props) {
         super();
         initialize(props, Phase.LOAD, 0);
+    }
+
+    // Workaround CDRIVER-3338
+    private static byte[] getNonEmptyData(byte[] data) {
+        if (data.length == 0) {
+            return new byte[] { 0x65};
+        }
+
+        return data;
+    }
+
+    private static String generateNodeSchema(String keyId) {
+        // Generate a JSON schema for the following collection.
+        // Some fields are not marked as encrypted because they use query/update operators which
+        // are not supported by FLE.
+        // class Node {
+        //     public long id;       // Unique identifier for node
+        //     public int type;      // Type of node
+        //     public long version;  // Version, incremented each change
+        //     public int time;      // Last modification time
+        //     public byte data[];   // Arbitrary payload data
+        //   }
+        String[][] fields = {
+            //{ "id", "long"}, - we sort on this key
+            { "type", "int"},
+            { "version", "long"},
+            { "time", "int"},
+            { "data", "binData"},
+        };
+
+        return generateSchema(keyId, fields);
+    }
+
+    private static String generateLinkSchema(String keyId) {
+        // Generate a JSON schema for the following collection.
+        // Some fields are not marked as encrypted because they use query/update operators which
+        // are not supported by FLE.
+        // class Link {
+        //     public long id1;        // id of source node
+        //     public long link_type;  // type of link
+        //     public long id2;        // id of destination node
+        //     public byte visibility; // is link visible?
+        //     public byte[] data;     // arbitrary data (must be short)
+        //     public int version;     // version of link
+        //     public long time;       // client-defined sort key (often timestamp)
+        //   }
+        String[][] fields = {
+            // _id field -
+            // { "id1", "long"},
+            // { "link_type", "long"},
+            // { "id2", "long"},
+            { "visibility", "int"},
+            { "data", "binData"},
+            { "version", "int"},
+            //{ "time", "long"}, -- does gte and lte
+        };
+
+        return generateSchema(keyId, fields);
+    }
+
+
+    private static String generateCountSchema(String keyId) {
+        // Generate a JSON schema for the following collection.
+        // Some fields are not marked as encrypted because they use query/update operators which
+        // are not supported by FLE.
+        // CREATE TABLE `counttable` (
+        //     `id` bigint(20) unsigned NOT NULL DEFAULT '0',
+        //     `link_type` bigint(20) unsigned NOT NULL DEFAULT '0',
+        //     `count` int(10) unsigned NOT NULL DEFAULT '0',
+        //     `time` bigint(20) unsigned NOT NULL DEFAULT '0',
+        //     `version` bigint(20) unsigned NOT NULL DEFAULT '0',
+        //     PRIMARY KEY (`id`,`link_type`)
+        //   ) ENGINE=InnoDB DEFAULT CHARSET=latin1
+
+        String[][] fields = {
+            // _id
+            { "id", "long"},
+            { "link_type", "long"},
+            // { "count ", "int"},  -- does inc
+            { "time", "long"},
+            // { "version", "int"}, -- does inc
+        };
+
+        return generateSchema(keyId, fields);
+    }
+
+    private static String generateSchema(String keyId, String[][] fields) {
+        StringBuilder schema = new StringBuilder();
+
+        schema.append(
+            "{" +
+            "  properties: {" );
+
+            for(int i = 0; i < fields.length; i++) {
+                schema.append(
+                    "    " + fields[i][0] + ": {" +
+                    "      encrypt: {" +
+                    "        keyId: [{" +
+                    "          \"$binary\": {" +
+                    "            \"base64\": \"" + keyId + "\"," +
+                    "            \"subType\": \"04\"" +
+                    "          }" +
+                    "        }]," +
+                    "        bsonType: \"" + fields[i][1] + "\"," +
+                    "        algorithm: \"AEAD_AES_256_CBC_HMAC_SHA_512-Deterministic\"" +
+                    "      }" +
+                    "    },");
+            }
+
+        schema.append(
+            "  }," +
+            "  \"bsonType\": \"object\"" +
+            "}");
+
+        return schema.toString();
+    }
+
+    private static synchronized String getDataKeyOrCreate(MongoCollection<Document> keyCollection,ClientEncryption clientEncryption ) {
+        BsonDocument findFilter = new BsonDocument();
+        Document keyDoc = keyCollection.find(findFilter).first();
+
+        String base64DataKeyId;
+        if(keyDoc == null ) {
+            BsonBinary dataKeyId = clientEncryption.createDataKey("local", new DataKeyOptions());
+            base64DataKeyId = Base64.getEncoder().encodeToString(dataKeyId.getData());
+        } else {
+            UUID dataKeyId = (UUID) keyDoc.get("_id");
+            base64DataKeyId = Base64.getEncoder().encodeToString(UuidUtils.asBytes(dataKeyId));
+        }
+
+        return base64DataKeyId;
+    }
+
+    private static AutoEncryptionSettings generateEncryptionSettings(String url) {
+        // Use a hard coded local key since it needs to be shared between load and run phases
+        byte[] localMasterKey = new byte[]{0x77, 0x1f, 0x2d, 0x7d, 0x76, 0x74, 0x39, 0x08, 0x50, 0x0b, 0x61, 0x14,
+            0x3a, 0x07, 0x24, 0x7c, 0x37, 0x7b, 0x60, 0x0f, 0x09, 0x11, 0x23, 0x65,
+            0x35, 0x01, 0x3a, 0x76, 0x5f, 0x3e, 0x4b, 0x6a, 0x65, 0x77, 0x21, 0x6d,
+            0x34, 0x13, 0x24, 0x1b, 0x47, 0x73, 0x21, 0x5d, 0x56, 0x6a, 0x38, 0x30,
+            0x6d, 0x5e, 0x79, 0x1b, 0x25, 0x4d, 0x2a, 0x00, 0x7c, 0x0b, 0x65, 0x1d,
+            0x70, 0x22, 0x22, 0x61, 0x2e, 0x6a, 0x52, 0x46, 0x6a, 0x43, 0x43, 0x23,
+            0x58, 0x21, 0x78, 0x59, 0x64, 0x35, 0x5c, 0x23, 0x00, 0x27, 0x43, 0x7d,
+            0x50, 0x13, 0x65, 0x3c, 0x54, 0x1e, 0x74, 0x3c, 0x3b, 0x57, 0x21, 0x1a};
+
+        Map<String, Map<String, Object>> kmsProviders =
+            Collections.singletonMap("local", Collections.singletonMap("key", (Object)localMasterKey));
+
+        // Use the same database, admin is slow
+        String database = "linkdb0";
+        String keyVaultCollection = "datakeys";
+        String keyVaultNamespace = database + "." + keyVaultCollection;
+        String keyVaultUrls = url;
+        if (!keyVaultUrls.startsWith("mongodb")) {
+            keyVaultUrls = "mongodb://" + keyVaultUrls;
+        }
+
+        MongoClientSettings keyVaultSettings = MongoClientSettings.builder()
+        .applyConnectionString(new ConnectionString(keyVaultUrls))
+        .build();
+
+        ClientEncryptionSettings clientEncryptionSettings = ClientEncryptionSettings.builder()
+        .keyVaultMongoClientSettings(keyVaultSettings)
+        .keyVaultNamespace(keyVaultNamespace)
+        .kmsProviders(kmsProviders)
+        .build();
+
+        ClientEncryption clientEncryption = ClientEncryptions.create(clientEncryptionSettings);
+
+        MongoClient vaultClient = new MongoClient( new MongoClientURI(keyVaultUrls) );
+
+        final MongoCollection<Document> keyCollection = vaultClient.getDatabase(database).getCollection(keyVaultCollection);
+
+        String base64DataKeyId = getDataKeyOrCreate(keyCollection, clientEncryption);
+
+        AutoEncryptionSettings.Builder autoEncryptionSettingsBuilder = AutoEncryptionSettings.builder()
+            .keyVaultNamespace(keyVaultNamespace)
+            .extraOptions(Collections.singletonMap("mongocryptdBypassSpawn", (Object)true) )
+            .kmsProviders(kmsProviders);
+
+        Map<String, org.bson.BsonDocument> schemas = new HashMap<String, org.bson.BsonDocument>();
+        System.out.println(generateNodeSchema(base64DataKeyId));
+        schemas.put(database + ".nodetable", BsonDocument.parse(generateNodeSchema(base64DataKeyId)));
+        schemas.put(database + ".linktable", BsonDocument.parse(generateLinkSchema(base64DataKeyId)));
+        schemas.put(database + ".counttable", BsonDocument.parse(generateCountSchema(base64DataKeyId)));
+
+        autoEncryptionSettingsBuilder.schemaMap(schemas);
+
+        return autoEncryptionSettingsBuilder.build();
     }
 
     public void initialize(Properties props, Phase phase, int threadId) {
@@ -177,6 +399,21 @@ public class LinkStoreMongoDb extends GraphStore {
         Level debuglevel = ConfigUtil.getDebugLevel(props);
         debug = Level.DEBUG.isGreaterOrEqual(debuglevel);
 
+
+        if (props.containsKey(FLE_ENABLE)) {
+            use_encryption = ConfigUtil.getBool(props, FLE_ENABLE);
+
+            if (use_encryption) {
+                String dbprefix = ConfigUtil.getPropertyRequired(props, Config.DBPREFIX);
+                int dbcount = ConfigUtil.getInt(props, Config.DBCOUNT, 1);
+
+                if (!dbprefix.equals("linkdb") || dbcount != 1) {
+                    throw new LinkBenchConfigError(String.format("FLE encryption is only supported when dbcount = 1 and dbprefix = 'linkdb', Actual: '%d' '%s'",
+                            dbcount, dbprefix));
+                }
+            }
+        }
+
         // Connect to database.
         try {
             openConnection();
@@ -210,9 +447,15 @@ public class LinkStoreMongoDb extends GraphStore {
         MongoClientOptions.Builder options = MongoClientOptions.builder()
                 .requiredReplicaSetName("replset");
 
+        AutoEncryptionSettings autoEncryptionSettings = generateEncryptionSettings(url);
+
+        if (use_encryption) {
+            options.autoEncryptionSettings(autoEncryptionSettings);
+        }
+
         // Open connection to the server.
         if (url != null) {
-            mongoClient = new MongoClient(new MongoClientURI(url));
+            mongoClient = new MongoClient(new MongoClientURI(url, options));
         } else {
             MongoCredential credentials = null;
             if(user != null) {
@@ -223,7 +466,9 @@ public class LinkStoreMongoDb extends GraphStore {
 
         // Run a basic status command to make sure the connection is created and working properly.
         MongoDatabase adminDb = mongoClient.getDatabase("admin");
-        adminDb.runCommand(new Document("serverStatus", 1));
+        if (!use_encryption) {
+            adminDb.runCommand(new Document("serverStatus", 1));
+        }
 
         session = mongoClient.startSession(ClientSessionOptions.builder().build());
     }
@@ -310,7 +555,7 @@ public class LinkStoreMongoDb extends GraphStore {
                 Bson update = combine(set("visibility", new BsonInt32(link.visibility)),
                         combine(
                                 setOnInsert("_id", linkId),
-                                setOnInsert("data", new BsonBinary(link.data)),
+                                setOnInsert("data", new BsonBinary(getNonEmptyData(link.data))),
                                 setOnInsert("time", new BsonInt64(link.time)),
                                 setOnInsert("version", new BsonInt32(link.version))));
                 FindOneAndUpdateOptions options = new FindOneAndUpdateOptions().
@@ -337,7 +582,7 @@ public class LinkStoreMongoDb extends GraphStore {
                 if (preexisting != null) {
                     final Bson filter = linkBsonId(link);
                     update = combine(
-                            set("data", new BsonBinary(link.data)),
+                            set("data", new BsonBinary(getNonEmptyData(link.data))),
                             set("time", new BsonInt64(link.time)),
                             set("version", new BsonInt32(link.version)));
 
@@ -603,7 +848,7 @@ public class LinkStoreMongoDb extends GraphStore {
                     Bson update = combine(set("visibility", new BsonInt32(link.visibility)),
                             combine(
                                     setOnInsert("_id", filter),
-                                    setOnInsert("data", new BsonBinary(link.data)),
+                                    setOnInsert("data", new BsonBinary(getNonEmptyData(link.data))),
                                     setOnInsert("time", new BsonInt64(link.time)),
                                     setOnInsert("version", new BsonInt32(link.version))));
 
@@ -769,7 +1014,7 @@ public class LinkStoreMongoDb extends GraphStore {
                     .append("type", new BsonInt32(node.type))
                     .append("version", new BsonInt64(node.version))
                     .append("time", new BsonInt32(node.time))
-                    .append("data", new BsonBinary(node.data));
+                    .append("data", new BsonBinary(getNonEmptyData(node.data)));
 
             insertOps.add(new InsertOneModel<>(document));
             nodeId += 1;
@@ -819,7 +1064,7 @@ public class LinkStoreMongoDb extends GraphStore {
             set("type", new BsonInt32(node.type)),
             set("version", new BsonInt64(node.version)),
             set("time", new BsonInt32(node.time)),
-            set("data", new BsonBinary(node.data)));
+            set("data", new BsonBinary(getNonEmptyData(node.data))));
 
         // Update the node with the specified id.
         UpdateResult res = nodeCollection.updateOne(eq("id", node.id), nodeUpdate);
