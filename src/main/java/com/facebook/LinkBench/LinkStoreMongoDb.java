@@ -444,8 +444,7 @@ public class LinkStoreMongoDb extends GraphStore {
         // "replset".
 
         // url="mongodb://localhost:27017/?readPreference=primary&replicaSet=replset"
-        MongoClientOptions.Builder options = MongoClientOptions.builder()
-                .requiredReplicaSetName("replset");
+        MongoClientOptions.Builder options = MongoClientOptions.builder();
 
         AutoEncryptionSettings autoEncryptionSettings = generateEncryptionSettings(url);
 
@@ -457,6 +456,8 @@ public class LinkStoreMongoDb extends GraphStore {
         if (url != null) {
             mongoClient = new MongoClient(new MongoClientURI(url, options));
         } else {
+            options.requiredReplicaSetName("replset");
+
             MongoCredential credentials = null;
             if(user != null) {
                 credentials = MongoCredential.createCredential(user, "admin", pwd);
