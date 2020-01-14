@@ -608,9 +608,7 @@ public class LinkBenchRequest implements Runnable {
 
         if (rng.nextDouble() < p_historical_getlinklist &&
                     !this.listTailHistory.isEmpty()) {
-          starttime = System.nanoTime();
           links = getLinkListTail();
-          endtime = System.nanoTime();
         } else {
           long id1 = chooseRequestID(DistributionType.LINK_READS, link.id1);
           long link_type = id2chooser.chooseRandomLinkType(rng);
@@ -682,8 +680,6 @@ public class LinkBenchRequest implements Runnable {
 
 
       // convert to microseconds
-      assert starttime > 0 : "set starttime";
-      assert endtime > 0 : "set endtime";
       long timetaken = (endtime - starttime)/1000;
 
       if (recordStats) {
