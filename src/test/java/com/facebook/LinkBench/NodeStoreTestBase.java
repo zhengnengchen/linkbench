@@ -17,6 +17,7 @@ package com.facebook.LinkBench;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.Properties;
 
 import junit.framework.TestCase;
@@ -130,6 +131,30 @@ public abstract class NodeStoreTestBase extends TestCase {
     Node test2 = store.getNode(testDB, test.type, test.id);
     assertNotNull(test2);
     assertTrue(test.equals(test2));
+  }
+
+  @Test
+  public void testBulk() throws IOException, Exception {
+    NodeStore store = getNodeStoreHandle(true);
+    store.resetNodeStore(testDB, 0);
+
+    int nlimit = store.bulkLoadBatchSize();
+    LinkedList<Node> nodes = new LinkedList<Node>();
+
+    for (int x=0; x<nlimit; x++) {
+      String d = "the quick brown fox:" + x;
+      nodes.add(new Node(-1, 1234+x, 3+x, 3+x, d.getBytes()));
+    }
+    long[] ids = store.bulkAddNodes(testDB, nodes);
+    assertEquals(ids.length, nlimit);
+
+    for (int x=0; x<nlimit; x++) {
+      nodes.get(x).id = ids[x];
+      Node n2 = store.getNode(testDB, nodes.get(x).type, nodes.get(x).id);
+      assertNotNull(n2);
+      assertTrue(nodes.get(x).toString() + " != " + n2.toString() + " at " + x,
+		 nodes.get(x).equals(n2));
+    }
   }
 
   @Test

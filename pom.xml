@@ -148,7 +148,7 @@
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
                             <includes>
-                              <include>**/MongoDb*Test.class</include>
+                              <include>**/MongoDb*Test*.class</include>
                             </includes>
                             <excludedGroups></excludedGroups>
                         </configuration>

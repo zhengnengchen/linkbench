@@ -23,7 +23,7 @@ public class MongoDbLinkStoreTest2 extends LinkStoreTestBase {
     @Override
     protected long getIDCount() {
         // Make test smaller so that it doesn't take too long
-        return 5000;
+        return 2500;
     }
 
     @Override
@@ -34,7 +34,7 @@ public class MongoDbLinkStoreTest2 extends LinkStoreTestBase {
 
     protected Properties basicProps() {
         Properties props = super.basicProps();
-        MongoDbTestConfig.fillMongoDbTestServerProps(props);
+        MongoDbTestConfig2.fillMongoDbTestServerProps(props);
         return props;
     }
 
@@ -42,16 +42,16 @@ public class MongoDbLinkStoreTest2 extends LinkStoreTestBase {
     @Override
     protected void initStore(Properties props) throws IOException, Exception {
         this.currProps = (Properties)props.clone();
-        conn = MongoDbTestConfig.createConnection(testDB);
-        MongoDbTestConfig.dropTestTables(conn, testDB);
-        MongoDbTestConfig.createTestTables(conn, testDB);
+        conn = MongoDbTestConfig2.createConnection(testDB);
+        MongoDbTestConfig2.dropTestTables(conn, testDB);
+        MongoDbTestConfig2.createTestTables(conn, testDB);
     }
 
 
 
     @Override
     public DummyLinkStore getStoreHandle(boolean initialize) throws IOException, Exception {
-        DummyLinkStore result = new DummyLinkStore(new LinkStoreMongoDb());
+        DummyLinkStore result = new DummyLinkStore(new LinkStoreMongoDb2());
         if (initialize) {
             result.initialize(currProps, Phase.REQUEST, 0);
         }
@@ -60,7 +60,7 @@ public class MongoDbLinkStoreTest2 extends LinkStoreTestBase {
 
     @Override protected void tearDown() throws Exception {
         super.tearDown();
-        MongoDbTestConfig.dropTestTables(conn, testDB);
+        MongoDbTestConfig2.dropTestTables(conn, testDB);
         conn = null;
     }
 

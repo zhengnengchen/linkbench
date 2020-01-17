@@ -23,7 +23,7 @@ public class MongoDbLinkStoreTest extends LinkStoreTestBase {
     @Override
     protected long getIDCount() {
         // Make test smaller so that it doesn't take too long
-        return 5000;
+        return 2500;
     }
 
     @Override

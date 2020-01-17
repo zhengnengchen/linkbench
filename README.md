@@ -607,6 +607,11 @@ Running a Benchmark with MongoDB
 
 Use MongoDB 3.7.0+
 
+There are two implementations -- *classic* and *new*. Classic will be unchanged for now as it is used for performance
+regression testing. New will get updated to improve performance. LinkStoreMongoDb.java is classic while
+LinkStoreMongoDb2.java is new. The version to run can be selected in LinkConfigMongoDb.properties via the
+*linkstore* and *nodestore* options.
+
 We need to create a new database and collections on the MongoDB server.
 We'll create a new database called `linkdb` and
 the needed collections to store graph nodes, links and link counts. MongoDB collections are the analog of SQL tables. 
@@ -620,7 +625,9 @@ but the explicit collection creation commands are included here for clarity.
 
 MongoDB is a document store, so we use indexes that are roughly analogous to the indexes you would 
 create on a set of SQL tables. The indexes that are used for the standard MongoDB 
-benchmark can be created with the following commands in the Mongo shell:
+benchmark can be created with the Mongo shell.
+
+These are the commands for classic - LinkStoreMongoDb.java:
 
     use linkdb
     db.linktable.createIndex({id1: 1, link_type: 1, id2: 1}, {unique: true});
@@ -628,6 +635,13 @@ benchmark can be created with the following commands in the Mongo shell:
     db.counttable.createIndex({id: 1, link_type: 1}, {unique: true});
     db.nodetable.createIndex({id: 1}, {unique: true});
      
+These are the commands for new - LinkStoreMongoDb2.java. The unique indexes aren't needed as that is
+provided by \_id. The secondary index on linktable has more columns to be covering. The time and
+visiblity columns have been reordered to support the predicates for the getLinksList operation.
+
+    use linkdb
+    db.linktable.createIndex({id1: 1, link_type: 1, visibility: 1, time: 1, id2: 1, version: 1, data: 1});
+
 Here are examples of Node, Link, and Count documents, as they will appear in the database:
     
 *Node*

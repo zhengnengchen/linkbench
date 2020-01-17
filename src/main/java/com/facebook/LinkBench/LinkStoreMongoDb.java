@@ -145,8 +145,8 @@ public class LinkStoreMongoDb extends GraphStore {
     }
 
     // Workaround CDRIVER-3338
-    private static byte[] getNonEmptyData(byte[] data) {
-        if (data.length == 0) {
+    private byte[] getNonEmptyData(byte[] data) {
+        if (use_encryption == true && data.length == 0) {
             return new byte[] { 0x65};
         }
 
@@ -446,9 +446,8 @@ public class LinkStoreMongoDb extends GraphStore {
         // url="mongodb://localhost:27017/?readPreference=primary&replicaSet=replset"
         MongoClientOptions.Builder options = MongoClientOptions.builder();
 
-        AutoEncryptionSettings autoEncryptionSettings = generateEncryptionSettings(url);
-
         if (use_encryption) {
+            AutoEncryptionSettings autoEncryptionSettings = generateEncryptionSettings(url);
             options.autoEncryptionSettings(autoEncryptionSettings);
         }
 

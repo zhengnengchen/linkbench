@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import static com.facebook.LinkBench.Config.*;
-import static com.facebook.LinkBench.LinkStoreMongoDb.*;
+import static com.facebook.LinkBench.LinkStoreMongoDb2.*;
 import static com.mongodb.client.model.Updates.combine;
 
 /**
@@ -65,8 +65,8 @@ public class MongoDbTestConfig2 {
         return missing;
     }
     static void fillMongoDbTestServerProps(Properties props) {
-        props.setProperty(LINKSTORE_CLASS, LinkStoreMongoDb.class.getName());
-        props.setProperty(NODESTORE_CLASS, LinkStoreMongoDb.class.getName());
+        props.setProperty(LINKSTORE_CLASS, LinkStoreMongoDb2.class.getName());
+        props.setProperty(NODESTORE_CLASS, LinkStoreMongoDb2.class.getName());
         props.setProperty(CONFIG_HOST, host);
         props.setProperty(CONFIG_PORT, Integer.toString(port));
         props.setProperty(CONFIG_USER, user);
@@ -106,23 +106,16 @@ public class MongoDbTestConfig2 {
         createIndex(collection,
                     combine(Indexes.ascending("id1"),
                             Indexes.ascending("link_type"),
-                            Indexes.ascending("id2")),
-                    true);
-        createIndex(collection,
-                    combine(Indexes.ascending("id1"),
-                            Indexes.ascending("link_type"),
                             Indexes.ascending("visibility"),
-                            Indexes.ascending("time")),
+                            Indexes.ascending("time"),
+                            Indexes.ascending("id2"),
+                            Indexes.ascending("version"),
+                            Indexes.ascending("data")),
              false);
 
         collection = createTestCollection(database, MongoDbTestConfig2.nodetable);
-        createIndex(collection, combine(Indexes.ascending("id")), true);
-
 
         collection = createTestCollection(database, MongoDbTestConfig2.counttable);
-        createIndex(collection,
-                    combine(Indexes.ascending("id"),
-                            Indexes.ascending("link_type")), true);
 
     }
 

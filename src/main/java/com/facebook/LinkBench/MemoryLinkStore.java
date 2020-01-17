@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.SortedSet;
@@ -377,6 +378,24 @@ public class MemoryLinkStore extends GraphStore {
       }
     }
   }
+
+  @Override
+  public void addBulkLinks(final String dbid, final List<Link> links, boolean noinverse)
+    throws Exception {
+    synchronized (linkdbs) {
+
+      for (Link link : links) {
+        addLink(dbid, link, noinverse);
+      }
+    }
+  }
+
+  @Override
+  public void addBulkCounts(String dbid, List<LinkCount> counts) {
+    // counts are not materialized
+    return;
+  }
+
 
   /**
    * Should be called with lock on nodedbs held

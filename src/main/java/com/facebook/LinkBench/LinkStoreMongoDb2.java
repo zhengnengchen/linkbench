@@ -59,22 +59,6 @@ import org.apache.log4j.Logger;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 
-class UuidUtils2 {
-    public static UUID asUuid(byte[] bytes) {
-      ByteBuffer bb = ByteBuffer.wrap(bytes);
-      long firstLong = bb.getLong();
-      long secondLong = bb.getLong();
-      return new UUID(firstLong, secondLong);
-    }
-
-    public static byte[] asBytes(UUID uuid) {
-      ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-      bb.putLong(uuid.getMostSignificantBits());
-      bb.putLong(uuid.getLeastSignificantBits());
-      return bb.array();
-    }
-  }
-
 /**
  * LinkStore implementation for MongoDB, using {@link ClientSession#startTransaction()},
  * {@link ClientSession#commitTransaction()} and {@link ClientSession#abortTransaction()}.
@@ -142,194 +126,6 @@ public class LinkStoreMongoDb2 extends GraphStore {
     LinkStoreMongoDb2(Properties props) {
         super();
         initialize(props, Phase.LOAD, 0);
-    }
-
-    // Workaround CDRIVER-3338
-    private static byte[] getNonEmptyData(byte[] data) {
-        if (data.length == 0) {
-            return new byte[] { 0x65};
-        }
-
-        return data;
-    }
-
-    private static String generateNodeSchema(String keyId) {
-        // Generate a JSON schema for the following collection.
-        // Some fields are not marked as encrypted because they use query/update operators which
-        // are not supported by FLE.
-        // class Node {
-        //     public long id;       // Unique identifier for node
-        //     public int type;      // Type of node
-        //     public long version;  // Version, incremented each change
-        //     public int time;      // Last modification time
-        //     public byte data[];   // Arbitrary payload data
-        //   }
-        String[][] fields = {
-            //{ "id", "long"}, - we sort on this key
-            { "type", "int"},
-            { "version", "long"},
-            { "time", "int"},
-            { "data", "binData"},
-        };
-
-        return generateSchema(keyId, fields);
-    }
-
-    private static String generateLinkSchema(String keyId) {
-        // Generate a JSON schema for the following collection.
-        // Some fields are not marked as encrypted because they use query/update operators which
-        // are not supported by FLE.
-        // class Link {
-        //     public long id1;        // id of source node
-        //     public long link_type;  // type of link
-        //     public long id2;        // id of destination node
-        //     public byte visibility; // is link visible?
-        //     public byte[] data;     // arbitrary data (must be short)
-        //     public int version;     // version of link
-        //     public long time;       // client-defined sort key (often timestamp)
-        //   }
-        String[][] fields = {
-            // _id field -
-            // { "id1", "long"},
-            // { "link_type", "long"},
-            // { "id2", "long"},
-            { "visibility", "int"},
-            { "data", "binData"},
-            { "version", "int"},
-            //{ "time", "long"}, -- does gte and lte
-        };
-
-        return generateSchema(keyId, fields);
-    }
-
-
-    private static String generateCountSchema(String keyId) {
-        // Generate a JSON schema for the following collection.
-        // Some fields are not marked as encrypted because they use query/update operators which
-        // are not supported by FLE.
-        // CREATE TABLE `counttable` (
-        //     `id` bigint(20) unsigned NOT NULL DEFAULT '0',
-        //     `link_type` bigint(20) unsigned NOT NULL DEFAULT '0',
-        //     `count` int(10) unsigned NOT NULL DEFAULT '0',
-        //     `time` bigint(20) unsigned NOT NULL DEFAULT '0',
-        //     `version` bigint(20) unsigned NOT NULL DEFAULT '0',
-        //     PRIMARY KEY (`id`,`link_type`)
-        //   ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-
-        String[][] fields = {
-            // _id
-            { "id", "long"},
-            { "link_type", "long"},
-            // { "count ", "int"},  -- does inc
-            { "time", "long"},
-            // { "version", "int"}, -- does inc
-        };
-
-        return generateSchema(keyId, fields);
-    }
-
-    private static String generateSchema(String keyId, String[][] fields) {
-        StringBuilder schema = new StringBuilder();
-
-        schema.append(
-            "{" +
-            "  properties: {" );
-
-            for(int i = 0; i < fields.length; i++) {
-                schema.append(
-                    "    " + fields[i][0] + ": {" +
-                    "      encrypt: {" +
-                    "        keyId: [{" +
-                    "          \"$binary\": {" +
-                    "            \"base64\": \"" + keyId + "\"," +
-                    "            \"subType\": \"04\"" +
-                    "          }" +
-                    "        }]," +
-                    "        bsonType: \"" + fields[i][1] + "\"," +
-                    "        algorithm: \"AEAD_AES_256_CBC_HMAC_SHA_512-Deterministic\"" +
-                    "      }" +
-                    "    },");
-            }
-
-        schema.append(
-            "  }," +
-            "  \"bsonType\": \"object\"" +
-            "}");
-
-        return schema.toString();
-    }
-
-    private static synchronized String getDataKeyOrCreate(MongoCollection<Document> keyCollection,ClientEncryption clientEncryption ) {
-        BsonDocument findFilter = new BsonDocument();
-        Document keyDoc = keyCollection.find(findFilter).first();
-
-        String base64DataKeyId;
-        if(keyDoc == null ) {
-            BsonBinary dataKeyId = clientEncryption.createDataKey("local", new DataKeyOptions());
-            base64DataKeyId = Base64.getEncoder().encodeToString(dataKeyId.getData());
-        } else {
-            UUID dataKeyId = (UUID) keyDoc.get("_id");
-            base64DataKeyId = Base64.getEncoder().encodeToString(UuidUtils2.asBytes(dataKeyId));
-        }
-
-        return base64DataKeyId;
-    }
-
-    private static AutoEncryptionSettings generateEncryptionSettings(String url) {
-        // Use a hard coded local key since it needs to be shared between load and run phases
-        byte[] localMasterKey = new byte[]{0x77, 0x1f, 0x2d, 0x7d, 0x76, 0x74, 0x39, 0x08, 0x50, 0x0b, 0x61, 0x14,
-            0x3a, 0x07, 0x24, 0x7c, 0x37, 0x7b, 0x60, 0x0f, 0x09, 0x11, 0x23, 0x65,
-            0x35, 0x01, 0x3a, 0x76, 0x5f, 0x3e, 0x4b, 0x6a, 0x65, 0x77, 0x21, 0x6d,
-            0x34, 0x13, 0x24, 0x1b, 0x47, 0x73, 0x21, 0x5d, 0x56, 0x6a, 0x38, 0x30,
-            0x6d, 0x5e, 0x79, 0x1b, 0x25, 0x4d, 0x2a, 0x00, 0x7c, 0x0b, 0x65, 0x1d,
-            0x70, 0x22, 0x22, 0x61, 0x2e, 0x6a, 0x52, 0x46, 0x6a, 0x43, 0x43, 0x23,
-            0x58, 0x21, 0x78, 0x59, 0x64, 0x35, 0x5c, 0x23, 0x00, 0x27, 0x43, 0x7d,
-            0x50, 0x13, 0x65, 0x3c, 0x54, 0x1e, 0x74, 0x3c, 0x3b, 0x57, 0x21, 0x1a};
-
-        Map<String, Map<String, Object>> kmsProviders =
-            Collections.singletonMap("local", Collections.singletonMap("key", (Object)localMasterKey));
-
-        // Use the same database, admin is slow
-        String database = "linkdb0";
-        String keyVaultCollection = "datakeys";
-        String keyVaultNamespace = database + "." + keyVaultCollection;
-        String keyVaultUrls = url;
-        if (!keyVaultUrls.startsWith("mongodb")) {
-            keyVaultUrls = "mongodb://" + keyVaultUrls;
-        }
-
-        MongoClientSettings keyVaultSettings = MongoClientSettings.builder()
-        .applyConnectionString(new ConnectionString(keyVaultUrls))
-        .build();
-
-        ClientEncryptionSettings clientEncryptionSettings = ClientEncryptionSettings.builder()
-        .keyVaultMongoClientSettings(keyVaultSettings)
-        .keyVaultNamespace(keyVaultNamespace)
-        .kmsProviders(kmsProviders)
-        .build();
-
-        ClientEncryption clientEncryption = ClientEncryptions.create(clientEncryptionSettings);
-
-        MongoClient vaultClient = new MongoClient( new MongoClientURI(keyVaultUrls) );
-
-        final MongoCollection<Document> keyCollection = vaultClient.getDatabase(database).getCollection(keyVaultCollection);
-
-        String base64DataKeyId = getDataKeyOrCreate(keyCollection, clientEncryption);
-
-        AutoEncryptionSettings.Builder autoEncryptionSettingsBuilder = AutoEncryptionSettings.builder()
-            .keyVaultNamespace(keyVaultNamespace)
-            .extraOptions(Collections.singletonMap("mongocryptdBypassSpawn", (Object)true) )
-            .kmsProviders(kmsProviders);
-
-        Map<String, org.bson.BsonDocument> schemas = new HashMap<String, org.bson.BsonDocument>();
-        System.out.println(generateNodeSchema(base64DataKeyId));
-        schemas.put(database + ".nodetable", BsonDocument.parse(generateNodeSchema(base64DataKeyId)));
-        schemas.put(database + ".linktable", BsonDocument.parse(generateLinkSchema(base64DataKeyId)));
-        schemas.put(database + ".counttable", BsonDocument.parse(generateCountSchema(base64DataKeyId)));
-
-        autoEncryptionSettingsBuilder.schemaMap(schemas);
-
-        return autoEncryptionSettingsBuilder.build();
     }
 
     public void initialize(Properties props, Phase phase, int threadId) {
@@ -446,11 +242,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         // url="mongodb://localhost:27017/?readPreference=primary&replicaSet=replset"
         MongoClientOptions.Builder options = MongoClientOptions.builder();
 
-        AutoEncryptionSettings autoEncryptionSettings = generateEncryptionSettings(url);
-
-        if (use_encryption) {
-            options.autoEncryptionSettings(autoEncryptionSettings);
-        }
+	assert use_encryption == false : "not supported";
 
         // Open connection to the server.
         if (url != null) {
@@ -550,45 +342,44 @@ public class LinkStoreMongoDb2 extends GraphStore {
         CommandBlock<Boolean> block = new CommandBlock<Boolean>() {
             @Override
             public Boolean call() {
-                final Bson linkId = linkBsonId(link);
+                final BsonBinary linkId = linkBsonId(link);
+                final Bson idEq = eq("_id", linkId);
 
                 Bson projection = combine(include("visibility"), exclude("_id"));
-                Bson update = combine(set("visibility", new BsonInt32(link.visibility)),
-                        combine(
+                Bson update = combine(
                                 setOnInsert("_id", linkId),
-                                setOnInsert("data", new BsonBinary(getNonEmptyData(link.data))),
-                                setOnInsert("time", new BsonInt64(link.time)),
-                                setOnInsert("version", new BsonInt32(link.version))));
+                                setOnInsert("id1", new BsonInt64(link.id1)),
+                                setOnInsert("link_type", new BsonInt64(link.link_type)),
+                                setOnInsert("id2", new BsonInt64(link.id2)),
+                                set("visibility", new BsonInt32(link.visibility)),
+                                set("version", new BsonInt32(link.version)),
+                                set("time", new BsonInt64(link.time)),
+                                set("data", new BsonBinary(link.data)));
+
                 FindOneAndUpdateOptions options = new FindOneAndUpdateOptions().
                                                         upsert(true).
                                                         projection(projection).
                                                         returnDocument(ReturnDocument.BEFORE);
-                Document preexisting = linkCollection.findOneAndUpdate(session, linkId, update, options);
+                Document preexisting = linkCollection.findOneAndUpdate(session, idEq, update, options);
 
-                if ((preexisting == null  &&  link.visibility == VISIBILITY_DEFAULT) ||
-                        (preexisting != null && preexisting.getInteger("visibility") != link.visibility)) {
-                    final Bson filter = countBsonId(link.id1, link.link_type);
-
+                if ((preexisting == null && link.visibility == VISIBILITY_DEFAULT) ||
+                    (preexisting != null && preexisting.getInteger("visibility") != link.visibility)) {
+                    final BsonBinary countId = countBsonId(link.id1, link.link_type);
+                    final Bson countEq = eq("_id", countId);
+                    long currentTime = (new Date()).getTime();
                     final long increment = link.visibility == VISIBILITY_DEFAULT ? 1L : -1L;
                     update = combine(
                             // TODO: SERVER-32442 check set _id and this functionality
-                            set("_id", filter),
+                            setOnInsert("_id", countId),
+                            setOnInsert("id", link.id1),
+                            setOnInsert("link_type", link.link_type),
                             inc("count", increment),
-                            set("time", new BsonInt64(link.time)),
+                            set("time", new BsonInt64(currentTime)),
                             inc("version", 1)
                     );
-                    countCollection.updateOne(session, filter, update, new UpdateOptions().upsert(true));
+                    countCollection.updateOne(session, countEq, update, new UpdateOptions().upsert(true));
                 }
 
-                if (preexisting != null) {
-                    final Bson filter = linkBsonId(link);
-                    update = combine(
-                            set("data", new BsonBinary(getNonEmptyData(link.data))),
-                            set("time", new BsonInt64(link.time)),
-                            set("version", new BsonInt32(link.version)));
-
-                    linkCollection.updateOne(session, filter, update);
-                }
                 if (check_count) {
                     testCount(dbid, linktable, counttable, link.id1, link.link_type);
                 }
@@ -619,7 +410,8 @@ public class LinkStoreMongoDb2 extends GraphStore {
         final MongoCollection<Document> linkCollection = database.getCollection(linktable);
         final MongoCollection<Document> countCollection = database.getCollection(counttable);
 
-        final BsonDocument linkId = linkBsonId(id1, link_type, id2);
+        final BsonDocument idEq = new BsonDocument().append("_id", linkBsonId(id1, link_type, id2));
+
         CommandBlock<Boolean> block = new CommandBlock<Boolean>() {
 
             @Override
@@ -634,12 +426,12 @@ public class LinkStoreMongoDb2 extends GraphStore {
                                                             projection(projection).
                                                             returnDocument(ReturnDocument.BEFORE);
                     previous = linkCollection.findOneAndUpdate(session,
-                                                               linkId,
+                                                               idEq,
                                                                set("visibility", VISIBILITY_HIDDEN),
                                                                options);
                 } else {
                      FindOneAndDeleteOptions options = new FindOneAndDeleteOptions().projection(projection);
-                     previous = linkCollection.findOneAndDelete(session, linkId, options);
+                     previous = linkCollection.findOneAndDelete(session, idEq, options);
                 }
 
                 if (previous != null && previous.getInteger("visibility") == VISIBILITY_DEFAULT) {
@@ -649,7 +441,8 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
 
             private void decrementLinkCount(long id, long link_type) {
-                BsonDocument countId = countBsonId(id, link_type);
+                BsonBinary countId = countBsonId(id, link_type);
+                Bson countEq = eq("_id", countId);
                 long currentTime = (new Date()).getTime();
                 Bson update = combine(
                         setOnInsert("_id", countId),
@@ -659,7 +452,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
                         set("time", new BsonInt64(currentTime)),
                         inc("version", 1L));
                 final FindOneAndUpdateOptions options = new FindOneAndUpdateOptions().upsert(true);
-                Document result = countCollection.findOneAndUpdate(session, countId, update, options);
+                Document result = countCollection.findOneAndUpdate(session, countEq, update, options);
                 long count = result.getLong("count");
                 if (count < -1L) {
                     throw new CommandBlockException("count less than -1: " + result);
@@ -748,14 +541,14 @@ public class LinkStoreMongoDb2 extends GraphStore {
         MongoCollection<Document> linkCollection = database.getCollection(linktable);
 
         Link link = null;
-        BsonDocument linkId = linkBsonId(id1, link_type, id2);
 
         // Parse the retrieved link object and return it.
         // TODO: Consider implementing a custom codec for better performance or cleaner code.
         // But SERVER-32442 needs to be resolved first as the codec needs to be able to get or generate an
         // _id value OR we would need to derive a new Link class with an _id field (except for node which
         // has to use the id field or the value of the id field in _id).
-        Document linkDoc = linkCollection.find(linkId).first();
+        Bson filter = eq("_id", linkBsonId(id1, link_type, id2));
+        Document linkDoc = linkCollection.find(filter).first();
 
         // Link not found.
         if (linkDoc != null) {
@@ -790,11 +583,23 @@ public class LinkStoreMongoDb2 extends GraphStore {
             lte("time", maxTimestamp),
             eq("visibility", new BsonInt32(VISIBILITY_DEFAULT)));
 
+        // Query must be index-only on covering secondary index, don't fetch _id
+        final Bson projDoc = combine(
+                                include("id1"),
+                                include("link_type"),
+                                include("id2"),
+                                include("visibility"),
+                                include("data"),
+                                include("version"),
+                                include("time"),
+                                exclude("_id"));
+
         CommandBlock<List> block = new CommandBlock<List>() {
             @Override
             public List<Link> call() {
                 MongoCursor<Document> cursor = linkCollection
                     .find(pred)
+                    .projection(projDoc)
                     .sort(new Document("time", -1))
                     .skip(offset)
                     .limit(limit).iterator();
@@ -840,20 +645,23 @@ public class LinkStoreMongoDb2 extends GraphStore {
                 }
                 MongoDatabase database = mongoClient.getDatabase(dbid);
                 final MongoCollection<Document> linkCollection = database.getCollection(linktable);
-                // TODO: consider retryable
                 final UpdateOptions options = new UpdateOptions().upsert(true);
                 final List<WriteModel<Document>> operations = new LinkedList<>();
 
                 for (Link link : links) {
-                    final Bson filter = linkBsonId(link);
-                    Bson update = combine(set("visibility", new BsonInt32(link.visibility)),
-                            combine(
-                                    setOnInsert("_id", filter),
-                                    setOnInsert("data", new BsonBinary(getNonEmptyData(link.data))),
-                                    setOnInsert("time", new BsonInt64(link.time)),
-                                    setOnInsert("version", new BsonInt32(link.version))));
+                    final BsonBinary idBytes = linkBsonId(link);
+                    final Bson idEq = eq("_id", idBytes);
+                    Bson update = combine(
+                            setOnInsert("_id", idBytes),
+                            setOnInsert("id1", new BsonInt64(link.id1)),
+                            setOnInsert("link_type", new BsonInt64(link.link_type)),
+                            setOnInsert("id2", new BsonInt64(link.id2)),
+                            set("visibility", new BsonInt32(link.visibility)),
+                            set("version", new BsonInt32(link.version)),
+                            set("time", new BsonInt64(link.time)),
+                            set("data", new BsonBinary(link.data)));
 
-                    UpdateOneModel<Document> operation = new UpdateOneModel<>(filter, update, options);
+                    UpdateOneModel<Document> operation = new UpdateOneModel<>(idEq, update, options);
                     operations.add(operation);
                 }
                 BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
@@ -898,15 +706,17 @@ public class LinkStoreMongoDb2 extends GraphStore {
         final List<WriteModel<Document>> operations = new ArrayList<>(counts.size());
         final UpdateOptions options = new UpdateOptions().upsert(true);
         for (LinkCount count : counts) {
-            final Bson filter = countBsonId(count);
-            // TODO: consider refactoring to common methods if sensible
+            final BsonBinary idBytes = countBsonId(count);
+            final Bson idEq = eq("_id", idBytes);
             Bson update = combine(
-                    setOnInsert("_id", filter),
+                    setOnInsert("_id", idBytes),
+                    set("id", new BsonInt64(count.id1)),
+                    set("link_type", new BsonInt64(count.link_type)),
                     set("count", new BsonInt64(count.count)),
                     set("version", new BsonInt64(count.version)),
                     set("time", new BsonInt64(count.time))
             );
-            UpdateOneModel<Document> operation = new UpdateOneModel<>(filter, update, options);
+            UpdateOneModel<Document> operation = new UpdateOneModel<>(idEq, update, options);
             operations.add(operation);
         }
         CommandBlock<BulkWriteResult> block = new CommandBlock<BulkWriteResult>() {
@@ -931,7 +741,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         MongoCollection<Document> countCollection = database.getCollection(counttable);
 
         // Find the right count entry.
-        Bson filter = combine(eq("id", id1), eq("link_type", link_type));
+        Bson filter = eq("_id", countBsonId(id1, link_type));
         Document document = countCollection.find(filter).first();
         if (document == null) {
             // No count entry exists.
@@ -945,6 +755,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
     @Override
     public void resetNodeStore(final String dbid, final long startID) {
         // Remove all documents from the node store collection, and then reset the node id counter.
+        // TODO: would be nice to have truncate command instead of deleteMany
         MongoDatabase database = mongoClient.getDatabase(dbid);
         database.getCollection(nodetable).deleteMany(new Document());
         nodeIdGen = new AtomicLong(startID);
@@ -967,6 +778,8 @@ public class LinkStoreMongoDb2 extends GraphStore {
      */
     @Override
     public long[] bulkAddNodes(String dbid, final List<Node> nodes) {
+        // TODO: does this need to support retry?
+        // TODO: count errors by error code
         MongoDatabase database = mongoClient.getDatabase(dbid);
         final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
         final List<InsertOneModel<Document>> insertOps = new ArrayList<>();
@@ -985,13 +798,13 @@ public class LinkStoreMongoDb2 extends GraphStore {
         if (nodeIdGen.get() == NODE_GEN_UNINITIALIZED) {
             logger.info("nodeIdGen initializing");
             Document document = nodeCollection.find(new Document())
-                                 .projection(new Document("id", 1).append("_id", 0))
-                                 .sort(Indexes.descending("id"))
+                                 .projection(new Document("_id", 1))
+                                 .sort(Indexes.descending("_id"))
                                  .limit(1)
                                  .first();
             long startId = 0;
             if (document != null ){
-                startId = document.getLong("id") + 1;
+                startId = document.getLong("_id") + 1;
             }
             if(nodeIdGen.compareAndSet(NODE_GEN_UNINITIALIZED, startId)) {
                 logger.info("nodeIdGen set " + startId);
@@ -1011,16 +824,17 @@ public class LinkStoreMongoDb2 extends GraphStore {
             assignedNodeIds[i] = nodeId;
             Document document = new Document()
                     .append("_id", new BsonInt64(nodeId))
-                    .append("id", new BsonInt64(nodeId))
                     .append("type", new BsonInt32(node.type))
                     .append("version", new BsonInt64(node.version))
                     .append("time", new BsonInt32(node.time))
-                    .append("data", new BsonBinary(getNonEmptyData(node.data)));
+                    .append("data", new BsonBinary(node.data));
 
             insertOps.add(new InsertOneModel<>(document));
             nodeId += 1;
         }
 
+        // TODO: should this use ordered=true to make it easier to cleanup on partial inserts?
+        // TODO: should this use a transaction?
         BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
         BulkWriteResult res = nodeCollection.bulkWrite(session, insertOps, bulkWriteOptions);
         if (res.getInsertedCount() != nodes.size()) {
@@ -1034,20 +848,17 @@ public class LinkStoreMongoDb2 extends GraphStore {
         final MongoDatabase database = mongoClient.getDatabase(dbid);
         final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
 
-        // Lookup the node by id and type.
-        final Bson query = and(eq("id", id), eq("type", type));
+        // Lookup the node by id
+        final Bson query = eq("_id", id);
 
         // Fetch and parse the retrieved node object.
-        // TODO: Consider implementing a custom codec for better performance or cleaner code.
-        // But SERVER-32442 needs to be resolved first as the codec needs to be able to get or generate an
-        // _id value OR we would need to derive a new Link class with an _id field (except for node which
-        // has to use the id field or the value of the id field in _id).
+        // TODO: see SERVER-32442 comment above
         Document nodeDoc = nodeCollection.find(query).first();
         Node node = null;
         if (nodeDoc != null) {
             Binary bindata = (Binary) nodeDoc.get("data");
             byte data[] = bindata.getData();
-            node = new Node(nodeDoc.getLong("id"),
+            node = new Node(nodeDoc.getLong("_id"),
                             nodeDoc.getInteger("type"),
                             nodeDoc.getLong("version"),
                             nodeDoc.getInteger("time"),
@@ -1058,17 +869,21 @@ public class LinkStoreMongoDb2 extends GraphStore {
 
     @Override
     public boolean updateNode(final String dbid, final Node node) {
+        // TODO: does this need to support retry?
+        // TODO: count errors by error code
         final MongoDatabase database = mongoClient.getDatabase(dbid);
         final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
 
+        // Only update if the 'id' and 'type' match.
+        final Bson pred = and(eq("_id", node.id), eq("type", node.type));
+
         final Bson nodeUpdate = combine(
-            set("type", new BsonInt32(node.type)),
             set("version", new BsonInt64(node.version)),
             set("time", new BsonInt32(node.time)),
-            set("data", new BsonBinary(getNonEmptyData(node.data))));
+            set("data", new BsonBinary(node.data)));
 
         // Update the node with the specified id.
-        UpdateResult res = nodeCollection.updateOne(eq("id", node.id), nodeUpdate);
+        UpdateResult res = nodeCollection.updateOne(pred, nodeUpdate);
 
         // Node not found.
         if (res.getMatchedCount() == 0) {
@@ -1081,11 +896,13 @@ public class LinkStoreMongoDb2 extends GraphStore {
 
     @Override
     public boolean deleteNode(final String dbid, final int type, final long id) {
+        // TODO: does this need to support retry?
+        // TODO: count errors by error code
         final MongoDatabase database = mongoClient.getDatabase(dbid);
         final MongoCollection<Document> nodeCollection = database.getCollection(nodetable);
 
         // Only delete the node if the 'id' and 'type' match.
-        final Bson pred = and(eq("id", id), eq("type", type));
+        final Bson pred = and(eq("_id", id), eq("type", type));
 
         DeleteResult res = nodeCollection.deleteOne(pred);
 
@@ -1093,34 +910,37 @@ public class LinkStoreMongoDb2 extends GraphStore {
         return (res.getDeletedCount() == 1);
     }
 
-    // TODO : SERVER-32442 revisit id v id1 v id2 confusion
-
     /**
-     * Given a Link object, or the unique fields of a link, create a BSON object suitable for use as that link's
-     * identifying field.
+     * Given a Link object, or the unique fields of a link, create a 24-byte binary string by concatenating
+     * bytes from the 3 fields to serve as the value of _id. This is safe for exact match but not for range
+     * scan. If needed the encoding could be updated to be useful for range scan.
      */
-    private BsonDocument linkBsonId(Link link) {
+    private BsonBinary linkBsonId(Link link) {
         return linkBsonId(link.id1, link.link_type, link.id2);
     }
 
-    private BsonDocument linkBsonId(long id1, long link_type, long id2) {
-        return new BsonDocument()
-                .append("link_type", new BsonInt64(link_type))
-                .append("id1", new BsonInt64(id1))
-                .append("id2", new BsonInt64(id2));
+    private BsonBinary linkBsonId(long id1, long link_type, long id2) {
+        // TODO try allocateDirect
+        ByteBuffer bb = ByteBuffer.allocate(24);
+        bb.putLong(link_type);
+        bb.putLong(id1);
+        bb.putLong(id2);
+        return new BsonBinary(bb.array());
     }
 
     /**
-     * Given a Count object, or the unique fields of a count, create a BSON object suitable for use as that count's
-     * identifying field.
+     * Given a Count object, or the unique fields of a count, create a 16-byte string by concatenating
+     * bytes from the 2 fields to serve as the value of _id. See the comment above on range scan.
      */
-    private BsonDocument countBsonId(long id, long link_type) {
-        return new BsonDocument()
-                .append("id", new BsonInt64(id))
-                .append("link_type", new BsonInt64(link_type));
+    private BsonBinary countBsonId(long id, long link_type) {
+        // TODO try allocateDirect
+        ByteBuffer bb = ByteBuffer.allocate(16);
+        bb.putLong(id);
+        bb.putLong(link_type);
+        return new BsonBinary(bb.array());
     }
 
-    private BsonDocument countBsonId(LinkCount count) {
+    private BsonBinary countBsonId(LinkCount count) {
         return countBsonId(count.id1, count.link_type);
     }
 
@@ -1197,6 +1017,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         return new CommandBlock<T>() {
             @Override
             public T call() throws MongoCommandException, CommandBlockException {
+                // TODO: count errors by error code
                 int retries = max_retries;
                 while (true) {
                     retries --;
