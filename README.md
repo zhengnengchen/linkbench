@@ -62,7 +62,7 @@ On a large benchmark run, this graph might have a billion nodes, and occupy over
 on disk.  The generated graph is designed to have similar properties to the Facebook
 social graph.  For example, the number of links out from each node follows a power-law
 distribution, where most nodes have at most a few links, but a few nodes have many
-more links.
+more links. The load phase uses one thread for Node and N threads (configurable) for Link and Count.
 
 The second is the *request phase*, where the actual benchmarking occurs.  In
 the request phase, the benchmark driver spawns many request threads, which make
@@ -361,13 +361,11 @@ to obtain better results:
   but aren't comparable to benchmarks where
   the database is much larger than RAM.  Typically for MySQL benchmarks our databases
   are 10-15x larger than the buffer pool.
-* Databases should be benchmarked in comparable configurations.  We
-  always run LinkBench with durable writes (i.e. so that
-  after an operation returns, the data is written to persistent storage and can be
-  recovered in the event of a system crash).
-  Similarly, our LinkBench MySQL implementation provides serializable consistency of
-  operations.  Weaker durability or consistency properties should be
-  disclosed alongside benchmark results.
+* Databases should be benchmarked in comparable configurations.
+* Nobody has yet to confirm the minimum isolation required for correctness. Read committed is
+  used for MyRocks while repeatable read is used for InnoDB.
+* Try to use a covering secondary index for Link. That will make a frequent range
+  query faster and more efficient -- less IO, less CPU will be needed.
 
 Understanding Performance Profile Under Varying Load
 ----------------------------------------------------
