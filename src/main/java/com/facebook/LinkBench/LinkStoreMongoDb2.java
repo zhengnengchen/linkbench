@@ -645,31 +645,29 @@ public class LinkStoreMongoDb2 extends GraphStore {
                 }
                 MongoDatabase database = mongoClient.getDatabase(dbid);
                 final MongoCollection<Document> linkCollection = database.getCollection(linktable);
-                final UpdateOptions options = new UpdateOptions().upsert(true);
                 final List<WriteModel<Document>> operations = new LinkedList<>();
 
                 for (Link link : links) {
                     final BsonBinary idBytes = linkBsonId(link);
-                    final Bson idEq = eq("_id", idBytes);
-                    Bson update = combine(
-                            setOnInsert("_id", idBytes),
-                            setOnInsert("id1", new BsonInt64(link.id1)),
-                            setOnInsert("link_type", new BsonInt64(link.link_type)),
-                            setOnInsert("id2", new BsonInt64(link.id2)),
-                            set("visibility", new BsonInt32(link.visibility)),
-                            set("version", new BsonInt32(link.version)),
-                            set("time", new BsonInt64(link.time)),
-                            set("data", new BsonBinary(link.data)));
+                    Document insert_doc = new Document()
+                        .append("_id", idBytes)
+                        .append("id1", new BsonInt64(link.id1))
+                        .append("link_type", new BsonInt64(link.link_type))
+                        .append("id2", new BsonInt64(link.id2))
+                        .append("visibility", new BsonInt32(link.visibility))
+                        .append("version", new BsonInt32(link.version))
+                        .append("time", new BsonInt64(link.time))
+                        .append("data", new BsonBinary(link.data));
 
-                    UpdateOneModel<Document> operation = new UpdateOneModel<>(idEq, update, options);
+                    InsertOneModel<Document> operation = new InsertOneModel<>(insert_doc);
                     operations.add(operation);
                 }
                 BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
                 BulkWriteResult result = linkCollection.bulkWrite(session, operations, bulkWriteOptions);
-                int upserts = result.getUpserts().size();
-                int matched = result.getMatchedCount();
-                if (matched != links.size() && upserts != links.size()) {
-                    throw new CommandBlockException("'bulkWrite' failed to bulk update all nodes properly.");
+                int inserts = result.getInsertedCount();
+                if (inserts != links.size()) {
+                    throw new CommandBlockException("'bulkWrite' inserted " + inserts + " of " +
+                                                    links.size() + " Links");
                 }
                 return result;
             }
@@ -684,7 +682,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         BulkWriteResult res = executeCommandBlock(block);
         int nAdded = 0;
         if(res != null)
-            nAdded = (res.getInsertedCount() + res.getUpserts().size());
+            nAdded = res.getInsertedCount();
         logger.trace("Added n=" + nAdded + " links");
     }
 
@@ -695,7 +693,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
      * @param counts a list of link count objects.
      */
     @Override
-    public void addBulkCounts(String dbid, List<LinkCount> counts) {
+    public void addBulkCounts(String dbid, final List<LinkCount> counts) {
         if(counts.isEmpty()) {
             logger.warn("addBulkCounts: counts=[] returning");
             return;
@@ -704,19 +702,17 @@ public class LinkStoreMongoDb2 extends GraphStore {
         final MongoCollection<Document> countCollection = database.getCollection(counttable);
 
         final List<WriteModel<Document>> operations = new ArrayList<>(counts.size());
-        final UpdateOptions options = new UpdateOptions().upsert(true);
         for (LinkCount count : counts) {
             final BsonBinary idBytes = countBsonId(count);
-            final Bson idEq = eq("_id", idBytes);
-            Bson update = combine(
-                    setOnInsert("_id", idBytes),
-                    set("id", new BsonInt64(count.id1)),
-                    set("link_type", new BsonInt64(count.link_type)),
-                    set("count", new BsonInt64(count.count)),
-                    set("version", new BsonInt64(count.version)),
-                    set("time", new BsonInt64(count.time))
-            );
-            UpdateOneModel<Document> operation = new UpdateOneModel<>(idEq, update, options);
+            Document insert_doc = new Document()
+                    .append("_id", idBytes)
+                    .append("id", new BsonInt64(count.id1))
+                    .append("link_type", new BsonInt64(count.link_type))
+                    .append("count", new BsonInt64(count.count))
+                    .append("version", new BsonInt64(count.version))
+                    .append("time", new BsonInt64(count.time));
+
+            InsertOneModel<Document> operation = new InsertOneModel<>(insert_doc);
             operations.add(operation);
         }
         CommandBlock<BulkWriteResult> block = new CommandBlock<BulkWriteResult>() {
@@ -724,7 +720,14 @@ public class LinkStoreMongoDb2 extends GraphStore {
             @Override
             public BulkWriteResult call() {
                 BulkWriteOptions bulkWriteOptions = new BulkWriteOptions().ordered(false);
-                return countCollection.bulkWrite(session, operations, bulkWriteOptions);
+                BulkWriteResult result = countCollection.bulkWrite(session, operations, bulkWriteOptions);
+
+                int inserts = result.getInsertedCount();
+                if (inserts != counts.size()) {
+                    throw new CommandBlockException("'bulkWrite' inserted " + inserts + " of " +
+                                                    counts.size() + " Counts");
+                }
+                return result;
             }
             public String getName() {
                 return "addBulkCounts";
