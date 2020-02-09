@@ -21,7 +21,6 @@ import java.util.Random;
 
 import junit.framework.TestCase;
 
-import org.apache.log4j.Logger;
 import org.junit.Test;
 
 import com.facebook.LinkBench.LinkBenchRequest.RequestProgress;
@@ -34,7 +33,7 @@ public abstract class GraphStoreTestBase extends TestCase {
 
   protected String testPrefix = "linkbench_unittestdb";
   protected String testDB = "linkbench_unittestdb0";
-  private Logger logger = Logger.getLogger("");
+  private Logger logger = Logger.getLogger();
 
   /**
    * Reinitialize link store database properties.
@@ -87,6 +86,8 @@ public abstract class GraphStoreTestBase extends TestCase {
   protected Properties basicProps() {
     Properties props = new Properties();
     props.setProperty(Config.DBPREFIX, testPrefix);
+    props.setProperty(Config.CHECK_COUNT, "true");
+    props.setProperty(Config.DEBUGLEVEL, "DEBUG");
     return props;
   }
 

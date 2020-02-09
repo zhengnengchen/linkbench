@@ -18,8 +18,6 @@ package com.facebook.LinkBench.distributions;
 import java.util.Properties;
 import java.util.Random;
 
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.Config;
 import com.facebook.LinkBench.ConfigUtil;
 import com.facebook.LinkBench.InvertibleShuffler;
@@ -27,6 +25,8 @@ import com.facebook.LinkBench.LinkBenchConfigError;
 import com.facebook.LinkBench.RealDistribution;
 import com.facebook.LinkBench.RealDistribution.DistributionType;
 import com.facebook.LinkBench.util.ClassLoadUtil;
+import com.facebook.LinkBench.Logger;
+import com.facebook.LinkBench.Level;
 
 /**
  * Module for id access patterns that allows different implementations
@@ -156,7 +156,7 @@ public class AccessDistributions {
 
   public static AccessDistribution loadAccessDistribution(Properties props,
       long minid, long maxid, DistributionType kind) throws LinkBenchConfigError {
-    Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+    Logger logger = Logger.getLogger();
     String keyPrefix;
     switch(kind) {
     case LINK_READS:
@@ -224,7 +224,7 @@ public class AccessDistributions {
       Properties props, String keyPrefix, long minid, long maxid,
       DistributionType kind) {
     try {
-      Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+      Logger logger = Logger.getLogger();
       logger.debug("Using ProbabilityDistribution class " + className +
                   " for " + kind.toString().toLowerCase());
       ProbabilityDistribution pDist = ClassLoadUtil.newInstance(className,

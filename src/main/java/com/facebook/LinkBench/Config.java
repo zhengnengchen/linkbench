@@ -24,6 +24,7 @@ package com.facebook.LinkBench;
 public class Config {
 
   public static final String DEBUGLEVEL = "debuglevel";
+  public static final String CHECK_COUNT = "check_count";
 
   /* Control store implementations used */
   public static final String LINKSTORE_CLASS = "linkstore";

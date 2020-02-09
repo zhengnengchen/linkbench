@@ -23,9 +23,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.distributions.ID2Chooser;
 import com.facebook.LinkBench.distributions.LogNormalDistribution;
 import com.facebook.LinkBench.generators.DataGenerator;
@@ -46,7 +43,7 @@ import com.facebook.LinkBench.util.ClassLoadUtil;
 
 public class LinkBenchLoad implements Runnable {
 
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+  private final Logger logger = Logger.getLogger();
 
   private long maxid1;   // max id1 to generate
   private long startid1; // id1 at which to start
@@ -474,7 +471,7 @@ public class LinkBenchLoad implements Runnable {
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
-        logger.error("Error: " + e.getMessage(), e);
+        logger.error("Error: " + e.getMessage());
         stats.addStats(LinkBenchOp.LOAD_LINK, timetaken2, true);
         store.clearErrors(loaderID);
     }
@@ -500,7 +497,7 @@ public class LinkBenchLoad implements Runnable {
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
-        logger.error("Error: " + e.getMessage(), e);
+        logger.error("Error: " + e.getMessage());
         stats.addStats(LinkBenchOp.LOAD_LINKS_BULK, timetaken2, true);
         store.clearErrors(loaderID);
     }
@@ -526,7 +523,7 @@ public class LinkBenchLoad implements Runnable {
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
-        logger.error("Error: " + e.getMessage(), e);
+        logger.error("Error: " + e.getMessage());
         stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK, timetaken2, true);
         store.clearErrors(loaderID);
     }

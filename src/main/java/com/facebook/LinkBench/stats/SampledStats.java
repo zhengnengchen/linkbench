@@ -22,12 +22,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Random;
 
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.ConfigUtil;
 import com.facebook.LinkBench.LinkBenchOp;
 import com.facebook.LinkBench.LinkStore;
-
+import com.facebook.LinkBench.Logger;
+import com.facebook.LinkBench.Level;
 
 /**
  * This class is used to keep track of statistics.  It collects a sample of the
@@ -66,7 +65,7 @@ public class SampledStats {
   // Displayed along with stats
   private int threadID;
 
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+  private final Logger logger = Logger.getLogger();
 
   /** Stream to write csv output to ( null if no csv output ) */
   private final PrintStream csvOutput;

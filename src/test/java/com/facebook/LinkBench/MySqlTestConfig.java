@@ -31,8 +31,8 @@ public class MySqlTestConfig {
   // Hardcoded parameters for now
   static String host = "localhost";
   static int port = 3306;
-  static String user = "linkbench";
-  static String pass = "linkbench";
+  static String user = "root";
+  static String pass = "pw";
   static String linktable = "test_linktable";
   static String counttable = "test_counttable";
   static String nodetable = "test_nodetable";
@@ -53,9 +53,10 @@ public class MySqlTestConfig {
      throws InstantiationException,
       IllegalAccessException, ClassNotFoundException, SQLException {
     Class.forName("com.mysql.jdbc.Driver").newInstance();
+    String defDb = "test";
     return DriverManager.getConnection(
             "jdbc:mysql://"+ MySqlTestConfig.host + ":" +
-                    MySqlTestConfig.port + "/" + testDB +
+                    MySqlTestConfig.port + "/" + defDb +
             "?elideSetAutoCommits=true" +
             "&useLocalTransactionState=true" +
             "&allowMultiQueries=true" +
@@ -67,6 +68,8 @@ public class MySqlTestConfig {
   static void createTestTables(Connection conn, String testDB)
                                           throws SQLException {
     Statement stmt = conn.createStatement();
+    stmt.executeUpdate("DROP DATABASE IF EXISTS " + testDB);
+    stmt.executeUpdate("CREATE DATABASE " + testDB);
     stmt.executeUpdate(String.format(
         "CREATE TABLE `%s`.`%s` (" +
         "`id1` bigint(20) unsigned NOT NULL DEFAULT '0'," +

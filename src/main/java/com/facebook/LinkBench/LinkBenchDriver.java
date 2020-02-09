@@ -22,7 +22,6 @@ import com.facebook.LinkBench.stats.LatencyStats;
 import com.facebook.LinkBench.stats.SampledStats;
 import com.facebook.LinkBench.util.ClassLoadUtil;
 import org.apache.commons.cli.*;
-import org.apache.log4j.Logger;
 
 import java.io.*;
 import java.nio.ByteBuffer;
@@ -63,7 +62,7 @@ public class LinkBenchDriver {
   private Properties props;
   private int dbcount;
 
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+  private final Logger logger = Logger.getLogger();
 
   LinkBenchDriver(String configfile, Properties
                   overrideProps, String logFile)
@@ -428,8 +427,8 @@ public class LinkBenchDriver {
             startTime.compareAndSet(0, now);
             task.run();
           } catch (Throwable e) {
-            Logger threadLog = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
-            threadLog.error("Unrecoverable exception in worker thread:", e);
+            Logger threadLog = Logger.getLogger();
+            threadLog.error("Unrecoverable exception in worker thread:" + e);
             Runtime.getRuntime().halt(1);
           }
           doneSignal.countDown();

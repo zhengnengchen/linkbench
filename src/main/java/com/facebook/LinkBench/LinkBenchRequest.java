@@ -19,9 +19,6 @@ import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.RealDistribution.DistributionType;
 import com.facebook.LinkBench.distributions.AccessDistributions;
 import com.facebook.LinkBench.distributions.AccessDistributions.AccessDistribution;
@@ -35,7 +32,7 @@ import com.facebook.LinkBench.util.ClassLoadUtil;
 
 
 public class LinkBenchRequest implements Runnable {
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+  private final Logger logger = Logger.getLogger();
   Properties props;
   LinkStore linkStore;
   NodeStore nodeStore;
@@ -695,8 +692,7 @@ public class LinkBenchRequest implements Runnable {
 
       long timetaken2 = (endtime2 - starttime)/1000;
 
-      logger.error(type.displayName() + " error " +
-                         e.getMessage(), e);
+      logger.error(type.displayName() + " error " + e.getMessage());
       if (recordStats) {
         stats.addStats(type, timetaken2, true);
       }
@@ -788,8 +784,7 @@ public class LinkBenchRequest implements Runnable {
           }
         }
       } catch (Throwable e) {
-        logger.error(type.displayName() + "error " +
-                         e.getMessage(), e);
+        logger.error(type.displayName() + "error " + e.getMessage());
         aborted = true;
       }
       closeStores();

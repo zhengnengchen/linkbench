@@ -18,11 +18,11 @@ package com.facebook.LinkBench.stats;
 import java.io.PrintStream;
 import java.text.DecimalFormat;
 
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.ConfigUtil;
 import com.facebook.LinkBench.LinkBenchOp;
 import com.facebook.LinkBench.LinkStore;
+import com.facebook.LinkBench.Logger;
+import com.facebook.LinkBench.Level;
 
 
 /**
@@ -157,7 +157,7 @@ public class LatencyStats {
     calcMeans();
     calcCumulativeBuckets();
 
-    Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+    Logger logger = Logger.getLogger();
     // print percentiles
     for (LinkBenchOp type: LinkBenchOp.values()) {
       if (sampleCounts[type.ordinal()] == 0) { // no samples of this type

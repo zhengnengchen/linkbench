@@ -30,9 +30,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-
 public class LinkStoreMysql extends GraphStore {
 
   /* MySql database server configuration keys */
@@ -45,8 +42,6 @@ public class LinkStoreMysql extends GraphStore {
 
   public static final int DEFAULT_BULKINSERT_SIZE = 1024;
 
-  private static final boolean INTERNAL_TESTING = false;
-
   String linktable;
   String counttable;
   String nodetable;
@@ -56,7 +51,6 @@ public class LinkStoreMysql extends GraphStore {
   String pwd;
   String port;
 
-  Level debuglevel;
   // Use read-only and read-write connections and statements to avoid toggling
   // auto-commit.
   Connection conn_ro, conn_rw;
@@ -68,8 +62,6 @@ public class LinkStoreMysql extends GraphStore {
   // Optional optimization: disable binary logging
   boolean disableBinLogForLoad = false;
 
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
-
   public LinkStoreMysql() {
     super();
   }
@@ -79,14 +71,14 @@ public class LinkStoreMysql extends GraphStore {
     initialize(props, Phase.LOAD, 0);
   }
 
-  public void initialize(Properties props, Phase currentPhase,
-    int threadId) throws IOException, Exception {
+  public void initialize(Properties props, Phase currentPhase, int threadId) {
+    super.initialize(props, currentPhase, threadId);
     counttable = ConfigUtil.getPropertyRequired(props, Config.COUNT_TABLE);
     if (counttable.equals("")) {
       String msg = "Error! " + Config.COUNT_TABLE + " is empty!"
           + "Please check configuration file.";
       logger.error(msg);
-      throw new RuntimeException(msg);
+      throw new IllegalStateException(msg);
     }
 
     nodetable = props.getProperty(Config.NODE_TABLE);
@@ -95,7 +87,7 @@ public class LinkStoreMysql extends GraphStore {
       String msg = "Error! " + Config.NODE_TABLE + " is empty!"
           + "Please check configuration file.";
       logger.error(msg);
-      throw new RuntimeException(msg);
+      throw new IllegalStateException(msg);
     }
 
     host = ConfigUtil.getPropertyRequired(props, CONFIG_HOST);
@@ -104,7 +96,6 @@ public class LinkStoreMysql extends GraphStore {
     port = props.getProperty(CONFIG_PORT);
 
     if (port == null || port.equals("")) port = "3306"; //use default port
-    debuglevel = ConfigUtil.getDebugLevel(props);
     phase = currentPhase;
 
     if (props.containsKey(CONFIG_BULK_INSERT_BATCH)) {
@@ -118,16 +109,16 @@ public class LinkStoreMysql extends GraphStore {
     // connect
     try {
       openConnection();
-    } catch (Exception e) {
-      logger.error("error connecting to database:", e);
-      throw e;
+    } catch (SQLException e) {
+      logger.error(e);
+      throw new IllegalStateException("Connection error");
     }
 
     linktable = ConfigUtil.getPropertyRequired(props, Config.LINK_TABLE);
   }
 
   // connects to test database
-  private void openConnection() throws Exception {
+  private void openConnection() throws SQLException {
     conn_ro = null;
     conn_rw = null;
     stmt_ro = null;
@@ -135,7 +126,12 @@ public class LinkStoreMysql extends GraphStore {
 
     String jdbcUrl = "jdbc:mysql://" + host + ":" + port + "/";
 
-    Class.forName("com.mysql.jdbc.Driver").newInstance();
+    try {
+      Class.forName("com.mysql.jdbc.Driver").newInstance();
+    } catch (Exception ex) {
+      logger.error(ex);
+      throw new IllegalStateException("Class.forName failed");
+    }
 
     jdbcUrl += "?elideSetAutoCommits=true" +
                "&useLocalTransactionState=true" +
@@ -391,7 +387,7 @@ public class LinkStoreMysql extends GraphStore {
       stmt_rw.executeUpdate(updatedata);
     }
 
-    if (INTERNAL_TESTING) {
+    if (check_count) {
       testCount(stmt_ro, dbid, linktable, counttable, l.id1, l.link_type);
     }
     return row_found;
@@ -556,7 +552,7 @@ public class LinkStoreMysql extends GraphStore {
 
     conn_rw.commit();
 
-    if (INTERNAL_TESTING) {
+    if (check_count) {
       testCount(stmt_ro, dbid, linktable, counttable, id1, link_type);
     }
 
