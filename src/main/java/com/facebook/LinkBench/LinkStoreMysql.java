@@ -71,6 +71,10 @@ public class LinkStoreMysql extends GraphStore {
     initialize(props, Phase.LOAD, 0);
   }
 
+  public void printMetrics() {
+    logger.info("TODO implement printMetrics for LinkStoreMySQL");
+  }
+
   public void initialize(Properties props, Phase currentPhase, int threadId) {
     super.initialize(props, currentPhase, threadId);
     counttable = ConfigUtil.getPropertyRequired(props, Config.COUNT_TABLE);

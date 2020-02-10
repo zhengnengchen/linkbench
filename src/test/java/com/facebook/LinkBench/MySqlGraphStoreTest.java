@@ -39,14 +39,14 @@ public class MySqlGraphStoreTest extends GraphStoreTestBase {
   @Override
   protected long getIDCount() {
     // Make quicker
-    return 500;
+    return 1000;
   }
 
   @Override
   protected int getRequestCount() {
     // Make quicker, enough requests that we can reasonably check
     // that operation percentages are about about right
-    return 10000;
+    return 20000;
   }
 
   @Override
