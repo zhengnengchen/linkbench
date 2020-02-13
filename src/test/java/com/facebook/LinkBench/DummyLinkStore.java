@@ -120,13 +120,13 @@ public class DummyLinkStore extends GraphStore {
   }
 
   @Override
-  public boolean addLink(String dbid, Link a, boolean noinverse) throws Exception {
+  public LinkWriteResult addLink(String dbid, Link a, boolean noinverse) throws Exception {
     checkInitialized();
     adds++;
     if (wrappedStore != null) {
       return wrappedStore.addLink(dbid, a, noinverse);
     } else {
-      return true;
+      return LinkWriteResult.LINK_INSERT;
     }
   }
 
@@ -144,7 +144,7 @@ public class DummyLinkStore extends GraphStore {
   }
 
   @Override
-  public boolean updateLink(String dbid, Link a, boolean noinverse)
+  public LinkWriteResult updateLink(String dbid, Link a, boolean noinverse)
       throws Exception {
     checkInitialized();
     updates++;
@@ -152,7 +152,7 @@ public class DummyLinkStore extends GraphStore {
     if (wrappedStore != null) {
       return wrappedStore.updateLink(dbid, a, noinverse);
     } else {
-      return true;
+      return LinkWriteResult.LINK_UPDATE;
     }
   }
 

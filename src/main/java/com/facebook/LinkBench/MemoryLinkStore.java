@@ -215,7 +215,7 @@ public class MemoryLinkStore extends GraphStore {
   }
 
   @Override
-  public boolean addLink(String dbid, Link a, boolean noinverse) throws Exception {
+  public LinkWriteResult addLink(String dbid, Link a, boolean noinverse) throws Exception {
     synchronized (linkdbs) {
       SortedSet<Link> links = findLinkByKey(dbid, a.id1, a.link_type, true);
 
@@ -234,7 +234,10 @@ public class MemoryLinkStore extends GraphStore {
 
       /*System.err.println(String.format("added link (%d, %d, %d), %d in list",
                 a.id1, a.link_type, a.id2, links.size()));*/
-      return !exists;
+      if (exists)
+	return LinkWriteResult.LINK_UPDATE;
+      else
+	return LinkWriteResult.LINK_INSERT;
     }
   }
 
@@ -263,7 +266,7 @@ public class MemoryLinkStore extends GraphStore {
   }
 
   @Override
-  public boolean updateLink(String dbid, Link a, boolean noinverse)
+  public LinkWriteResult updateLink(String dbid, Link a, boolean noinverse)
       throws Exception {
     synchronized (linkdbs) {
       SortedSet<Link> linkSet = findLinkByKey(dbid, a.id1, a.link_type, false);
@@ -274,14 +277,12 @@ public class MemoryLinkStore extends GraphStore {
           if (l.id2 == a.id2) {
             it.remove();
             linkSet.add(a.clone());
-            return true;
+            return LinkWriteResult.LINK_UPDATE;
           }
         }
       }
 
-      // Throw error if updating non-existing link
-      throw new Exception(String.format("Link not found: (%d, %d, %d)", a.id1,
-                                                          a.link_type, a.id2));
+      return addLink(dbid, a, noinverse);
     }
   }
 

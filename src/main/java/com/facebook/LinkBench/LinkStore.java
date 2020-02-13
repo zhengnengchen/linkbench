@@ -28,6 +28,7 @@ public abstract class LinkStore {
   // visibility
   public static final byte VISIBILITY_HIDDEN = 0;
   public static final byte VISIBILITY_DEFAULT = 1;
+  public static final byte VISIBILITY_NOT_FOUND = 2;
 
   public static final int MAX_OPTYPES = LinkBenchOp.values().length;
   public static final int DEFAULT_LIMIT = 10000;
@@ -74,7 +75,7 @@ public abstract class LinkStore {
    *              optional, for informational purposes only.
    * @throws Exception
    */
-  public abstract boolean addLink(String dbid, Link a, boolean noinverse) throws Exception;
+  public abstract LinkWriteResult addLink(String dbid, Link a, boolean noinverse) throws Exception;
 
   /**
    * Delete link identified by parameters from store
@@ -100,7 +101,7 @@ public abstract class LinkStore {
    *      optional, for informational purposes only.
    * @throws Exception
    */
-  public abstract boolean updateLink(String dbid, Link a, boolean noinverse)
+  public abstract LinkWriteResult updateLink(String dbid, Link a, boolean noinverse)
     throws Exception;
 
   /**
