@@ -48,7 +48,9 @@ import com.facebook.LinkBench.distributions.LinkDistributions.LinkDistribution;
  *    (which respects P_UPDATE_EXIST) and then choose the id2 value. The second problem
  *    comes from extending the id2 range linearly (>= id1 value). This is fixed by
  *    just using the entire id1 space (1 to maxid1) when picking an id2 value for "add".
- *
+ * 4) calcTotalLinkCount returns a value >= the number of link types so that each link
+ *    type will get a link during the load. This helps avoid skew (see above) and respect
+ *    P_UPDATE_EXIST, P_ADD_EXIST and P_DELETE_EXIST.
  */
 public class ID2Chooser {
 
@@ -305,6 +307,12 @@ public class ID2Chooser {
     assert(shuffled >= startid1 && shuffled < maxid1);
     sameShuffle = shuffled == id1;
     long nlinks = linkDist.getNlinks(shuffled);
+
+    if (!neverChange) {
+      // Make sure that each link type gets a link
+      nlinks = Math.max(nlinks, linkTypeCount);
+    }
+
     return nlinks;
   }
 
@@ -348,7 +356,7 @@ public class ID2Chooser {
     // other link types. The code path for chooseForOp kind-of assumes this
     // won't happen 
     if (!neverChange)
-      return minCount+1;
+      return minCount;
 
     long leftOver = totCount - minCount;
     int typeNum = (int)(linkType -LinkStore.DEFAULT_LINK_TYPE);

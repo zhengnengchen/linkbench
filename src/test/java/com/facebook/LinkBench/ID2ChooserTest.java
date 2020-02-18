@@ -28,15 +28,24 @@ import com.facebook.LinkBench.distributions.ID2Chooser;
 import com.facebook.LinkBench.distributions.ZipfDistribution;
 
 public class ID2ChooserTest extends TestCase {
-  Properties props;
+  Properties propsOld;
+  Properties propsNew;
 
   @Override
   public void setUp() {
-    props = new Properties();
-    props.setProperty(Config.RANDOM_ID2_MAX, "0");
-    props.setProperty(Config.NLINKS_FUNC, ZipfDistribution.class.getName());
-    props.setProperty(Config.NLINKS_PREFIX + "shape", "0.5");
-    props.setProperty(Config.NLINKS_PREFIX + "scale", "1000000");
+    propsOld = new Properties();
+    propsOld.setProperty(Config.RANDOM_ID2_MAX, "0");
+    propsOld.setProperty(Config.NLINKS_FUNC, ZipfDistribution.class.getName());
+    propsOld.setProperty(Config.NLINKS_PREFIX + "shape", "0.5");
+    propsOld.setProperty(Config.NLINKS_PREFIX + "scale", "1000000");
+    propsOld.setProperty(Config.NEVER_CHANGE, "true");
+
+    propsNew = new Properties();
+    propsNew.setProperty(Config.RANDOM_ID2_MAX, "0");
+    propsNew.setProperty(Config.NLINKS_FUNC, ZipfDistribution.class.getName());
+    propsNew.setProperty(Config.NLINKS_PREFIX + "shape", "0.5");
+    propsNew.setProperty(Config.NLINKS_PREFIX + "scale", "1000000");
+    propsNew.setProperty(Config.NEVER_CHANGE, "false");
   }
 
   @Test
@@ -47,7 +56,7 @@ public class ID2ChooserTest extends TestCase {
     long seed = 5313242;
     Random rng = new Random(seed);
 
-    ID2Chooser c = new ID2Chooser(props, min, max, 1, 1);
+    ID2Chooser c = new ID2Chooser(propsOld, min, max, 1, 1);
     // Check we don't get the same id2 more than once (i.e. duplicate links)
 
     int nlinks = 50;
@@ -75,7 +84,7 @@ public class ID2ChooserTest extends TestCase {
     long min = 500;
     long max = n + min;
     int trials = 1000;
-    ID2Chooser c = new ID2Chooser(props, min, max, 1, 1);
+    ID2Chooser c = new ID2Chooser(propsOld, min, max, 1, 1);
     for (int i = 0; i < trials; i++) {
       long id2 = c.chooseForOp(rng, i + min, LinkStore.DEFAULT_LINK_TYPE, 1.0);
       assert(id2 >= min);
@@ -90,12 +99,56 @@ public class ID2ChooserTest extends TestCase {
    * right probability of a loaded link matching
    */
   @Test
-  public void testMatchPercent() {
+  public void testMatchPercentOld() {
     long seed = 15325435L;
     Random rng = new Random(seed);
 
     int minid = 500, maxid=1000000;
-    ID2Chooser chooser = new ID2Chooser(props, minid, maxid, 1, 0);
+    ID2Chooser chooser = new ID2Chooser(propsOld, minid, maxid, 1, 0);
+    for (int id1 = minid; id1 < maxid; id1 += 3763) {
+      HashSet<Long> existing = new HashSet<Long>();
+      long nlinks = chooser.calcTotalLinkCount(id1);
+      for (long i = 0; i < nlinks; i++) {
+        long id2 = chooser.chooseForLoad(rng, id1,
+                                LinkStore.DEFAULT_LINK_TYPE, i);
+        existing.add(id2);
+      }
+
+      int trials = 10000;
+
+      int hit = 0; // hit for prob = 50%
+
+      for (int i = 0; i < trials; i++) {
+        // Test with 100% prob of hit
+        long id2 = chooser.chooseForOp(rng, id1,
+                                          LinkStore.DEFAULT_LINK_TYPE, 1.0);
+        assertTrue(existing.contains(id2) || existing.size() == 0);
+
+        // Test with 50% prob of hit
+        id2 = chooser.chooseForOp(rng, id1, LinkStore.DEFAULT_LINK_TYPE, 0.5);
+        if (existing.contains(id2)) {
+          hit++;
+        }
+      }
+
+      double hitPercent = hit / (double)trials;
+      if (existing.size() > 0 && Math.abs(0.5 - hitPercent) > 0.05) {
+        fail(hitPercent * 100 + "% of ids2 were hits for id1 " + id1);
+      }
+    }
+  }
+
+  /**
+   * Check that the choosing mechanism is generating id2s with the
+   * right probability of a loaded link matching
+   */
+  @Test
+  public void testMatchPercentNew() {
+    long seed = 15325435L;
+    Random rng = new Random(seed);
+
+    int minid = 500, maxid=1000000;
+    ID2Chooser chooser = new ID2Chooser(propsNew, minid, maxid, 1, 0);
     for (int id1 = minid; id1 < maxid; id1 += 3763) {
       HashSet<Long> existing = new HashSet<Long>();
       long nlinks = chooser.calcTotalLinkCount(id1);
@@ -133,13 +186,37 @@ public class ID2ChooserTest extends TestCase {
    * Check that link counts work for multiple link types
    */
   @Test
-  public void testLinkCount() {
+  public void testLinkCountNew() {
     long startid = 1, maxid = 1000;
-    Properties newProps = new Properties(props);
+    Properties props = new Properties(propsNew);
     int nLinkTypes = 10;
-    newProps.setProperty(Config.LINK_TYPE_COUNT, Integer.toString(nLinkTypes));
+    props.setProperty(Config.LINK_TYPE_COUNT, Integer.toString(nLinkTypes));
 
-    ID2Chooser chooser = new ID2Chooser(newProps, startid, maxid, 1, 0);
+    ID2Chooser chooser = new ID2Chooser(props, startid, maxid, 1, 0);
+    long linkTypes[] = chooser.getLinkTypes();
+    assertEquals(nLinkTypes, linkTypes.length);
+
+    // Check it works for some different IDs
+    for (long id = startid; id < maxid; id += 7) {
+      long totalCount = 0;
+      for (long linkType: linkTypes) {
+        totalCount += chooser.calcLinkCount(id, linkType);
+      }
+      assertEquals(chooser.calcTotalLinkCount(id), totalCount);
+    }
+  }
+
+  /**
+   * Check that link counts work for multiple link types
+   */
+  @Test
+  public void testLinkCountOld() {
+    long startid = 1, maxid = 1000;
+    Properties props = new Properties(propsOld);
+    int nLinkTypes = 10;
+    props.setProperty(Config.LINK_TYPE_COUNT, Integer.toString(nLinkTypes));
+
+    ID2Chooser chooser = new ID2Chooser(props, startid, maxid, 1, 0);
     long linkTypes[] = chooser.getLinkTypes();
     assertEquals(nLinkTypes, linkTypes.length);
 
