@@ -583,6 +583,8 @@ abstract class LinkStoreSql extends GraphStore {
     msg += "Message was: '" + ex.getMessage() + "'.  ";
     msg += "SQLState was: " + ex.getSQLState() + ".  ";
 
+    logger.error("SQLException from " + op + ": " + ex);
+
     if (retry) {
       msg += "Error is probably transient, retrying operation.";
       logger.warn(msg);
@@ -662,6 +664,8 @@ abstract class LinkStoreSql extends GraphStore {
 	    // Row does not exist, switch to insert
             do_insert = true;
 	    retry_upd_to_add += 1;
+	    logger.debug("newLinkLoop upd_to_add for id1=" + l.id1 + " id2=" + l.id2 +
+	                 " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
 	  } else {
 	    String s = "newLinkLoop bad result for update(" + wr + ") with id1=" + l.id1 +
 	               " id2=" + l.id2 + " link_type=" + l.link_type;
@@ -678,6 +682,8 @@ abstract class LinkStoreSql extends GraphStore {
 	  // Row exists, switch to update
 	  do_insert = false;
           retry_add_to_upd += 1;
+	  logger.debug("newLinkLoop add_to_upd for id1=" + l.id1 + " id2=" + l.id2 +
+	               " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
 	} else if (!processSQLException(ex, caller)) {
           throw ex;
 	}
