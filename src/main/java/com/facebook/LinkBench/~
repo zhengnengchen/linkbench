@@ -487,10 +487,12 @@ public class LinkBenchLoad implements Runnable {
   }
 
   private void loadLinks(ArrayList<Link> loadBuffer) {
-    if (loadBuffer.size() < 1)
-      return;
-
     long timestart = System.nanoTime();
+    if (loadBuffer.size() < 1) {
+      logger.error("LoadCounts 0");
+      Thread.currentThread().printStackTrace();
+      System.exit(1);
+    }
     try {
       // no inverses for now
       int nlinks = loadBuffer.size();
@@ -520,11 +522,13 @@ public class LinkBenchLoad implements Runnable {
   }
 
   private void loadCounts(ArrayList<LinkCount> loadBuffer) {
-    if (loadBuffer.size() < 1)
-      return;
-
     long timestart = System.nanoTime();
 
+    if (loadBuffer.size() < 1) {
+      logger.error("LoadCounts 0");
+      Thread.currentThread().printStackTrace();
+      System.exit(1);
+    }
     try {
       // no inverses for now
       int ncounts = loadBuffer.size();
