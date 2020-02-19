@@ -86,7 +86,7 @@ public class LinkBenchLoad implements Runnable {
 
   private Properties props;
 
-  private boolean neverChange;
+  private boolean neverChange = false;
 
   /**
    * Convenience constructor

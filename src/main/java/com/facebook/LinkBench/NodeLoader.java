@@ -69,7 +69,7 @@ public class NodeLoader implements Runnable {
   /** How often to display stat updates */
   private final long displayFreq_ms;
 
-  private boolean neverChange;
+  private boolean neverChange = false;
 
   public NodeLoader(Properties props, Logger logger,
       NodeStore nodeStore, Random rng,
