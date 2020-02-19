@@ -85,6 +85,8 @@ public class LinkBenchLoad implements Runnable {
 
   private Properties props;
 
+  private boolean neverChange;
+
   /**
    * Convenience constructor
    * @param store
@@ -148,6 +150,9 @@ public class LinkBenchLoad implements Runnable {
     linkDataSize = new LogNormalDistribution();
     linkDataSize.init(0, LinkStore.MAX_LINK_DATA, medianLinkDataSize,
                                          Config.LINK_DATASIZE_SIGMA);
+
+    if (props.containsKey(Config.NEVER_CHANGE))
+      neverChange = ConfigUtil.getBool(props, Config.NEVER_CHANGE);
 
     try {
       linkDataGen = ClassLoadUtil.newInstance(
@@ -471,7 +476,11 @@ public class LinkBenchLoad implements Runnable {
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
-        logger.error("Error: " + e.getMessage());
+
+        logger.error("Error in loadLink: " + e.getMessage());
+        if (!neverChange)
+	  System.exit(1);
+
         stats.addStats(LinkBenchOp.LOAD_LINK, timetaken2, true);
         store.clearErrors(loaderID);
     }
@@ -497,7 +506,11 @@ public class LinkBenchLoad implements Runnable {
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
-        logger.error("Error: " + e.getMessage());
+
+        logger.error("Error in loadLinks: " + e.getMessage());
+        if (!neverChange)
+	  System.exit(1);
+
         stats.addStats(LinkBenchOp.LOAD_LINKS_BULK, timetaken2, true);
         store.clearErrors(loaderID);
     }
@@ -523,7 +536,11 @@ public class LinkBenchLoad implements Runnable {
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
-        logger.error("Error: " + e.getMessage());
+
+        logger.error("Error in loadCounts: " + e.getMessage());
+        if (!neverChange)
+	  System.exit(1);
+
         stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK, timetaken2, true);
         store.clearErrors(loaderID);
     }

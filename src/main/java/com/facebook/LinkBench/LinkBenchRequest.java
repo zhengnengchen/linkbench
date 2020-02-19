@@ -711,7 +711,10 @@ public class LinkBenchRequest implements Runnable {
 
       long timetaken2 = (endtime2 - starttime)/1000;
 
-      logger.error(type.displayName() + " error " + e.getMessage());
+      logger.error("oneRequest error: " + type.displayName() + " error " + e.getMessage());
+      if (!neverChange)
+        System.exit(1);
+
       if (recordStats) {
         stats.addStats(type, timetaken2, true);
       }

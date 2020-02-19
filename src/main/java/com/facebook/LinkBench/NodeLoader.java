@@ -69,6 +69,7 @@ public class NodeLoader implements Runnable {
   /** How often to display stat updates */
   private final long displayFreq_ms;
 
+  private boolean neverChange;
 
   public NodeLoader(Properties props, Logger logger,
       NodeStore nodeStore, Random rng,
@@ -105,6 +106,9 @@ public class NodeLoader implements Runnable {
     displayFreq_ms = ConfigUtil.getLong(props, Config.DISPLAY_FREQ) * 1000;
     int maxsamples = ConfigUtil.getInt(props, Config.MAX_STAT_SAMPLES);
     this.stats = new SampledStats(loaderId, maxsamples, csvStreamOut);
+
+    if (props.containsKey(Config.NEVER_CHANGE))
+      neverChange = ConfigUtil.getBool(props, Config.NEVER_CHANGE);
   }
 
   @Override
@@ -216,7 +220,11 @@ public class NodeLoader implements Runnable {
     } catch (Throwable e){//Catch exception if any
       long endtime2 = System.nanoTime();
       long timetaken2 = (endtime2 - timestart)/1000;
-      logger.error("Error: " + e.getMessage());
+
+      logger.error("Error in loadNodes: " + e.getMessage());
+      if (!neverChange)
+        System.exit(1);
+
       stats.addStats(LinkBenchOp.LOAD_NODE_BULK, timetaken2, true);
       nodeStore.clearErrors(loaderId);
       nodeLoadBuffer.clear();
