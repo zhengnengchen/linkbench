@@ -190,7 +190,6 @@ abstract class LinkStoreSql extends GraphStore {
   // Don't implement his here as the DBMS might use a hint 
   abstract PreparedStatement makeGetLinkListPS() throws SQLException;
 
-  // abstract public int bulkLoadBatchSize();
   abstract String getDefaultPort();
     
   public LinkStoreSql() {
