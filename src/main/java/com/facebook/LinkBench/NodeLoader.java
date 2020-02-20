@@ -197,7 +197,8 @@ public class NodeLoader implements Runnable {
     long timestart = System.nanoTime();
     try {
       actualIds = nodeStore.bulkAddNodes(dbid, nodeLoadBuffer);
-      long timetaken = (System.nanoTime() - timestart);
+      // convert to microseconds
+      long timetaken = (System.nanoTime() - timestart)/1000;
       nodesLoaded += nodeLoadBuffer.size();
 
       // Check that expected ids were allocated
@@ -211,10 +212,8 @@ public class NodeLoader implements Runnable {
 
       nodeLoadBuffer.clear();
 
-      // convert to microseconds
-      stats.addStats(LinkBenchOp.LOAD_NODE_BULK, timetaken/1000, false);
-      latencyStats.recordLatency(loaderId,
-                    LinkBenchOp.LOAD_NODE_BULK, timetaken);
+      stats.addStats(LinkBenchOp.LOAD_NODE_BULK, timetaken, false);
+      latencyStats.recordLatency(loaderId, LinkBenchOp.LOAD_NODE_BULK, timetaken);
 
       if (nodesLoaded >= nextReport) {
         double totalTimeTaken = (System.currentTimeMillis() - startTime_ms) / 1000.0;
