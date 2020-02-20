@@ -67,7 +67,7 @@
         <dependency>
           <groupId>org.postgresql</groupId>
           <artifactId>postgresql</artifactId>
-          <version>9.4.1211</version>
+          <version>42.2.9</version>
         </dependency>
 
     </dependencies>
@@ -149,15 +149,7 @@
                     </snapshots>
                 </repository>
             </repositories>
-						<!-- woonhak - add this for connect to PostgreSQL -->
-						<dependencies>
-        			<dependency>
-								<groupId>org.postgresql</groupId>
-								<artifactId>postgresql</artifactId>
-								<version>9.4.1207.jre7</version>
-        			</dependency>
-						</dependencies>
-        		</profile>
+  	</profile>
     </profiles>
 
     <build>
