@@ -130,39 +130,6 @@ abstract class LinkStoreSql extends GraphStore {
   PreparedStatement pstmt_link_inc_count;
   PreparedStatement pstmt_link_get_for_update;
 
-  private Integer retry_add_link = 0;
-  private Integer retry_update_link = 0;
-  private Integer retry_delete_link = 0;
-  private Integer retry_get_link = 0;
-  private Integer retry_multigetlinks = 0;
-  private Integer retry_get_link_list = 0;
-  private Integer retry_count_links = 0;
-  private Integer retry_add_bulk_links = 0;
-  private Integer retry_add_bulk_counts = 0;
-  private Integer retry_add_node = 0;
-  private Integer retry_bulk_add_nodes = 0;
-  private Integer retry_get_node = 0;
-  private Integer retry_update_node = 0;
-  private Integer retry_delete_node = 0;
-
-  private Integer max_add_link = 0;
-  private Integer max_update_link = 0;
-  private Integer max_delete_link = 0;
-  private Integer max_get_link = 0;
-  private Integer max_multigetlinks = 0;
-  private Integer max_get_link_list = 0;
-  private Integer max_count_links = 0;
-  private Integer max_add_bulk_links = 0;
-  private Integer max_add_bulk_counts = 0;
-  private Integer max_add_node = 0;
-  private Integer max_bulk_add_nodes = 0;
-  private Integer max_get_node = 0;
-  private Integer max_update_node = 0;
-  private Integer max_delete_node = 0;
-
-  private int retry_add_to_upd = 0;
-  private int retry_upd_to_add = 0;
-
   protected Phase phase;
 
   /**
@@ -199,44 +166,6 @@ abstract class LinkStoreSql extends GraphStore {
   public LinkStoreSql(Properties props) throws IOException, Exception {
     super();
     initialize(props, Phase.LOAD, 0);
-  }
-
-  public void printMetrics() {
-    logger.info("SQL Link total retry: " +
-                retry_add_link + " add, " +
-                retry_update_link + " update, " +
-                retry_delete_link + " delete, " +
-                retry_get_link + " get, " +
-                retry_multigetlinks + " multiget, " +
-                retry_get_link_list + " get_link_list, " +
-                retry_count_links + " count, " +
-                retry_add_bulk_links + " add_bulk_links, " +
-                retry_add_bulk_counts + " add_bulk_counts");
-    logger.info("SQL Link max retry: " +
-                max_add_link + " add, " +
-                max_update_link + " update, " +
-                max_delete_link + " delete, " +
-                max_get_link + " get, " +
-                max_multigetlinks + " multiget, " +
-                max_get_link_list + " get_link_list, " +
-                max_count_links + " count, " +
-                max_add_bulk_links + " add_bulk_links, " +
-                max_add_bulk_counts + " add_bulk_counts");
-    logger.info("SQL Link other: " +
-                retry_add_to_upd + " add_to_upd, " +
-                retry_upd_to_add + " upd_to_add");
-    logger.info("SQL Node total retry: " +
-                retry_add_node + " add, " +
-                retry_bulk_add_nodes + " add_bulk, " +
-                retry_get_node + " get, " +
-                retry_update_node + " update, " +
-                retry_delete_node + " delete");
-    logger.info("SQL Node max retry: " +
-                max_add_node + " add, " +
-                max_bulk_add_nodes + " add_bulk, " +
-                max_get_node + " get, " +
-                max_update_node + " update, " +
-                max_delete_node + " delete");
   }
 
   public void initialize(Properties props, Phase currentPhase, int threadId) {
