@@ -1,24 +1,24 @@
 --create database for linkbench
 
-drop database if exists linkdb;
-create database linkdb encoding='latin1' ;
+drop database if exists linkdb0;
+create database linkdb0 encoding='latin1' ;
 
 --drop user linkbench to create new one
 DROP USER  IF EXISTS linkbench;
 
 --	You may want to set up a special database user account for benchmarking:
 CREATE USER linkbench password 'linkbench';
--- Grant all privileges on linkdb to this user
-GRANT ALL ON database linkdb TO linkbench;
+-- Grant all privileges on linkdb0 to this user
+GRANT ALL ON database linkdb0 TO linkbench;
 
 --add Schema keep the same query style
-DROP SCHEMA IF EXISTS linkdb CASCADE; 
-CREATE SCHEMA linkdb;
+DROP SCHEMA IF EXISTS linkdb0 CASCADE; 
+CREATE SCHEMA linkdb0;
 
 --conn postgresql linkbench/password
 
 --FIXME:Need to make it partitioned by key id1 %16
-CREATE TABLE linkdb.linktable (
+CREATE TABLE linkdb0.linktable (
 		id1 numeric(20) NOT NULL DEFAULT '0',
 		id2 numeric(20) NOT NULL DEFAULT '0',
 		link_type numeric(20) NOT NULL DEFAULT '0',
@@ -30,9 +30,9 @@ CREATE TABLE linkdb.linktable (
 		);
 
 -- this is index for linktable
-CREATE INDEX id1_type on linkdb.linktable(id1,link_type,visibility,time,id2,version,data);
+CREATE INDEX id1_type on linkdb0.linktable(id1,link_type,visibility,time,id2,version,data);
 
-CREATE TABLE linkdb.counttable (
+CREATE TABLE linkdb0.counttable (
 		id numeric(20) NOT NULL DEFAULT '0',
 		link_type numeric(20) NOT NULL DEFAULT '0',
 		count int NOT NULL DEFAULT '0',
@@ -41,7 +41,7 @@ CREATE TABLE linkdb.counttable (
 		PRIMARY KEY (id,link_type)
 		);
 
-CREATE TABLE linkdb.nodetable (
+CREATE TABLE linkdb0.nodetable (
 		id BIGSERIAL NOT NULL,
 		type int NOT NULL,
 		version numeric NOT NULL,
