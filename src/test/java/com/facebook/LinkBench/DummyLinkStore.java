@@ -87,10 +87,9 @@ public class DummyLinkStore extends GraphStore {
   public long bulkLoadCountRows;
 
   @Override
-  public void initialize(Properties p, Phase currentPhase, int threadId)
-      throws IOException, Exception {
+  public void initialize(Properties p, Phase currentPhase, int threadId) {
     if (initialized) {
-      throw new Exception("Double initialization");
+      throw new IllegalStateException("Double initialization");
     }
     initialized = true;
     if (wrappedStore != null) {

@@ -21,9 +21,6 @@ import java.util.Arrays;
 import java.util.Properties;
 import java.util.Random;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.distributions.LogNormalDistribution;
 import com.facebook.LinkBench.generators.DataGenerator;
 import com.facebook.LinkBench.stats.LatencyStats;
@@ -219,7 +216,7 @@ public class NodeLoader implements Runnable {
     } catch (Throwable e){//Catch exception if any
       long endtime2 = System.nanoTime();
       long timetaken2 = (endtime2 - timestart)/1000;
-      logger.error("Error: " + e.getMessage(), e);
+      logger.error("Error: " + e.getMessage());
       stats.addStats(LinkBenchOp.LOAD_NODE_BULK, timetaken2, true);
       nodeStore.clearErrors(loaderId);
       nodeLoadBuffer.clear();

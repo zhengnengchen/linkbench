@@ -27,8 +27,6 @@ import java.util.Random;
 import java.util.Scanner;
 import java.util.TreeMap;
 
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.distributions.PiecewiseLinearDistribution;
 
 /*
@@ -41,8 +39,7 @@ public class RealDistribution extends PiecewiseLinearDistribution {
   private static final Locale INPUT_FILE_LOCALE = Locale.ENGLISH;
 
   public static final String DISTRIBUTION_CONFIG = "realdist";
-  private static final Logger logger =
-                      Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+  private static final Logger logger = Logger.getLogger();
   /* params to shuffler for link degree */
   public static final long NLINKS_SHUFFLER_SEED = 20343988438726021L;
   public static final int NLINKS_SHUFFLER_GROUPS = 1024;

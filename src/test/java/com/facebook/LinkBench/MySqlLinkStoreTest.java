@@ -30,7 +30,6 @@ import com.facebook.LinkBench.testtypes.MySqlTest;
  * with permissions for a user/pass linkbench/linkbench to create tables, select,
  * insert, delete, etc.
  */
-@Category(MySqlTest.class)
 public class MySqlLinkStoreTest extends LinkStoreTestBase {
 
   private Connection conn;

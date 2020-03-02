@@ -198,8 +198,8 @@ public class MemoryLinkStore extends GraphStore {
   }
 
   @Override
-  public void initialize(Properties p, Phase currentPhase, int threadId)
-      throws IOException, Exception {
+  public void initialize(Properties p, Phase currentPhase, int threadId) {
+    super.initialize(p, currentPhase, threadId);
   }
 
   @Override

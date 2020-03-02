@@ -23,7 +23,6 @@ import org.junit.experimental.categories.Category;
 
 import com.facebook.LinkBench.testtypes.MySqlTest;
 
-@Category(MySqlTest.class)
 public class MySqlGraphStoreTest extends GraphStoreTestBase {
 
   private Properties props;

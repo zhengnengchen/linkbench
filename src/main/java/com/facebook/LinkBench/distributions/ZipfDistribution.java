@@ -20,13 +20,14 @@ import java.util.Properties;
 import java.util.Random;
 
 import org.apache.commons.math3.util.FastMath;
-import org.apache.log4j.Logger;
 
 import com.facebook.LinkBench.Config;
 import com.facebook.LinkBench.ConfigUtil;
+import com.facebook.LinkBench.Logger;
+import com.facebook.LinkBench.Level;
 
 public class ZipfDistribution implements ProbabilityDistribution {
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+  private final Logger logger = Logger.getLogger();
 
   private long min = 0;
   private long max = 1;

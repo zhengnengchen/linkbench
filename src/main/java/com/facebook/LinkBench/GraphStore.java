@@ -16,12 +16,26 @@
 package com.facebook.LinkBench;
 
 import java.util.List;
+import java.util.Properties;
 
 /**
  * An abstract class for storing both nodes and edges
  * @author tarmstrong
  */
 public abstract class GraphStore extends LinkStore implements NodeStore {
+  protected boolean check_count = false;
+  protected Level debuglevel;
+  protected Logger logger;
+
+  public GraphStore() {
+    logger = Logger.getLogger();
+  }
+
+  public void initialize(Properties props, Phase phase, int threadId) {
+    debuglevel = ConfigUtil.getDebugLevel(props);
+    if (props.containsKey(Config.CHECK_COUNT))
+      check_count = ConfigUtil.getBool(props, Config.CHECK_COUNT);
+  }
 
   /** Provide generic implementation */
   public long[] bulkAddNodes(String dbid, List<Node> nodes) throws Exception {

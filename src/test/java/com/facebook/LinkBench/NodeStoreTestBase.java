@@ -50,6 +50,8 @@ public abstract class NodeStoreTestBase extends TestCase {
   protected Properties basicProps() {
     Properties props = new Properties();
     props.setProperty(Config.DBPREFIX, testPrefix);
+    props.setProperty(Config.CHECK_COUNT, "true");
+    props.setProperty(Config.DEBUGLEVEL, "DEBUG");
     return props;
   }
 

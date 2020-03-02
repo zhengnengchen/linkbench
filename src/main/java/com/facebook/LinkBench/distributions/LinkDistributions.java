@@ -17,14 +17,14 @@ package com.facebook.LinkBench.distributions;
 
 import java.util.Properties;
 
-import org.apache.log4j.Logger;
-
 import com.facebook.LinkBench.Config;
 import com.facebook.LinkBench.ConfigUtil;
 import com.facebook.LinkBench.LinkBenchConfigError;
 import com.facebook.LinkBench.RealDistribution;
 import com.facebook.LinkBench.RealDistribution.DistributionType;
 import com.facebook.LinkBench.util.ClassLoadUtil;
+import com.facebook.LinkBench.Logger;
+import com.facebook.LinkBench.Level;
 
 public class LinkDistributions {
   public static interface LinkDistribution {
@@ -142,7 +142,7 @@ public class LinkDistributions {
 
   public static LinkDistribution loadLinkDistribution(Properties props,
       long minid1, long maxid1) {
-    Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+    Logger logger = Logger.getLogger();
     String nlinks_func; // distribution function for #links
 
     nlinks_func = ConfigUtil.getPropertyRequired(props, Config.NLINKS_FUNC);
@@ -192,7 +192,7 @@ public class LinkDistributions {
   private static LinkDistribution tryDynamicLoad(String className,
       Properties props, long minid1, long maxid1) {
     try {
-      Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+      Logger logger = Logger.getLogger();
       logger.debug("Using LinkDistribution class " + className);
       ProbabilityDistribution pDist = ClassLoadUtil.newInstance(className,
                                                 ProbabilityDistribution.class);

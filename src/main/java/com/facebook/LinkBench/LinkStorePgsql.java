@@ -35,9 +35,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-
 public class LinkStorePgsql extends GraphStore {
 
   /* PostgreSQL database server configuration keys */
@@ -51,8 +48,6 @@ public class LinkStorePgsql extends GraphStore {
 	//XXX woonhak, test small bulk insert size (sometimes JDBC buffer got overflowed);
   public static final int DEFAULT_BULKINSERT_SIZE = 256;
 
-  private static final boolean INTERNAL_TESTING = false;
-
   String linktable;
   String counttable;
   String nodetable;
@@ -62,7 +57,6 @@ public class LinkStorePgsql extends GraphStore {
   String pwd;
   String port;
 
-  Level debuglevel;
   // Use read-only and read-write connections and statements to avoid toggling
   // auto-commit.
   Connection conn_ro, conn_rw;
@@ -74,8 +68,6 @@ public class LinkStorePgsql extends GraphStore {
   // Optional optimization: disable binary logging
   boolean disableBinLogForLoad = false;
 
-  private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
-
   public LinkStorePgsql() {
     super();
   }
@@ -85,14 +77,14 @@ public class LinkStorePgsql extends GraphStore {
     initialize(props, Phase.LOAD, 0);
   }
 
-  public void initialize(Properties props, Phase currentPhase,
-    int threadId) throws IOException, Exception {
+  public void initialize(Properties props, Phase currentPhase, int threadId) {
+    super.initialize(props, currentPhase, threadId);
     counttable = ConfigUtil.getPropertyRequired(props, Config.COUNT_TABLE);
     if (counttable.equals("")) {
       String msg = "Error! " + Config.COUNT_TABLE + " is empty!"
           + "Please check configuration file.";
       logger.error(msg);
-      throw new RuntimeException(msg);
+      throw new IllegalStateException(msg);
     }
 
     nodetable = props.getProperty(Config.NODE_TABLE);
@@ -101,7 +93,7 @@ public class LinkStorePgsql extends GraphStore {
       String msg = "Error! " + Config.NODE_TABLE + " is empty!"
           + "Please check configuration file.";
       logger.error(msg);
-      throw new RuntimeException(msg);
+      throw new IllegalStateException(msg);
     }
 
     host = ConfigUtil.getPropertyRequired(props, CONFIG_HOST);
@@ -110,7 +102,6 @@ public class LinkStorePgsql extends GraphStore {
     port = props.getProperty(CONFIG_PORT);
 
     if (port == null || port.equals("")) port = "5432"; //use default port
-    debuglevel = ConfigUtil.getDebugLevel(props);
     phase = currentPhase;
 
 		/*woonhak, Disable additional configurations */
@@ -125,16 +116,16 @@ public class LinkStorePgsql extends GraphStore {
     // connect
     try {
       openConnection();
-    } catch (Exception e) {
-      logger.error("error connecting to database:", e);
-      throw e;
+    } catch (SQLException e) {
+      logger.error(e);
+      throw new IllegalStateException("Connection error");
     }
 
     linktable = ConfigUtil.getPropertyRequired(props, Config.LINK_TABLE);
   }
 
   // connects to test database
-  private void openConnection() throws Exception {
+  private void openConnection() throws SQLException {
     conn_ro = null;
     conn_rw = null;
     stmt_ro = null;
@@ -142,7 +133,12 @@ public class LinkStorePgsql extends GraphStore {
 
     String jdbcUrl = "jdbc:postgresql://"+ host + ":" + port + "/";
 
-    Class.forName("org.postgresql.Driver").newInstance();
+    try {
+      Class.forName("org.postgresql.Driver").newInstance();
+    } catch (Exception e) {
+      logger.error(e);
+      throw new IllegalStateException("Class.forName failed");
+    }
 
     jdbcUrl += "?elideSetAutoCommits=true" +
                "&useLocalTransactionState=true" +
@@ -186,7 +182,7 @@ public class LinkStorePgsql extends GraphStore {
       if (conn_rw != null) conn_rw.close();
       if (conn_ro != null) conn_ro.close();
     } catch (SQLException e) {
-      logger.error("Error while closing PostgreSQL connection: ", e);
+      logger.error("Error while closing PostgreSQL connection: " + e);
     }
   }
 
@@ -413,7 +409,7 @@ public class LinkStorePgsql extends GraphStore {
       stmt_rw.executeUpdate(updatedata);
     }
 
-    if (INTERNAL_TESTING) {
+    if (check_count) {
       testCount(stmt_ro, dbid, linktable, counttable, l.id1, l.link_type);
     }
     return row_found;
@@ -588,7 +584,7 @@ public class LinkStorePgsql extends GraphStore {
 
     conn_rw.commit();
 
-    if (INTERNAL_TESTING) {
+    if (check_count) {
       testCount(stmt_ro, dbid, linktable, counttable, id1, link_type);
     }
 
@@ -1006,7 +1002,7 @@ public class LinkStorePgsql extends GraphStore {
     }
     //sql.append("; commit;");
     if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
-      logger.trace(sql);
+      logger.trace(sql.toString());
     }
 
 		//XXX woonhak, 

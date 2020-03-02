@@ -51,8 +51,7 @@ public abstract class LinkStore {
   }
 
   /** initialize the store object */
-  public abstract void initialize(Properties p,
-      Phase currentPhase, int threadId) throws IOException, Exception;
+  public abstract void initialize(Properties p, Phase currentPhase, int threadId);
 
   /**
    * Do any cleanup.  After this is called, store won't be reused
