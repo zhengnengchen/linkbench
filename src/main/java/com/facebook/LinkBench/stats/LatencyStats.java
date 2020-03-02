@@ -191,8 +191,6 @@ public class LatencyStats {
       for (int percentile: percentiles) {
         out.print(String.format(",p%d_low,p%d_high", percentile, percentile));
       }
-      // Add thread level to the stats CSV, this change was also made upstream at
-      // https://github.com/mdcallag/linkbench.
       out.print(",max,mean,threads");
       out.println();
     }
