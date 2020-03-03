@@ -90,7 +90,8 @@ public class LinkStoreMysql extends LinkStoreSql {
            "&useLocalTransactionState=true" +
            "&allowMultiQueries=true" +
            "&useLocalSessionState=true" +
-           "&useAffectedRows=true";
+           "&useAffectedRows=true" +
+	   "&useServerPrepStmts=true";
   }
 
   /**

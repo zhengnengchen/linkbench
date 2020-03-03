@@ -37,6 +37,39 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
   // because they are smaller. When 0 there is no limit.
   protected int bulkInsertKB = 0;
 
+  protected Integer retry_add_link = 0;
+  protected Integer retry_update_link = 0;
+  protected Integer retry_delete_link = 0;
+  protected Integer retry_get_link = 0;
+  protected Integer retry_multigetlinks = 0;
+  protected Integer retry_get_link_list = 0;
+  protected Integer retry_count_links = 0;
+  protected Integer retry_add_bulk_links = 0;
+  protected Integer retry_add_bulk_counts = 0;
+  protected Integer retry_add_node = 0;
+  protected Integer retry_bulk_add_nodes = 0;
+  protected Integer retry_get_node = 0;
+  protected Integer retry_update_node = 0;
+  protected Integer retry_delete_node = 0;
+
+  protected Integer max_add_link = 0;
+  protected Integer max_update_link = 0;
+  protected Integer max_delete_link = 0;
+  protected Integer max_get_link = 0;
+  protected Integer max_multigetlinks = 0;
+  protected Integer max_get_link_list = 0;
+  protected Integer max_count_links = 0;
+  protected Integer max_add_bulk_links = 0;
+  protected Integer max_add_bulk_counts = 0;
+  protected Integer max_add_node = 0;
+  protected Integer max_bulk_add_nodes = 0;
+  protected Integer max_get_node = 0;
+  protected Integer max_update_node = 0;
+  protected Integer max_delete_node = 0;
+
+  protected int retry_add_to_upd = 0;
+  protected int retry_upd_to_add = 0;
+
   public GraphStore() {
     logger = Logger.getLogger();
   }
@@ -66,5 +99,43 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
       ids[i++] = id;
     }
     return ids;
+  }
+
+  public void printMetrics() {
+    logger.info("SQL Link total retry: " +
+                retry_add_link + " add, " +
+                retry_update_link + " update, " +
+                retry_delete_link + " delete, " +
+                retry_get_link + " get, " +
+                retry_multigetlinks + " multiget, " +
+                retry_get_link_list + " get_link_list, " +
+                retry_count_links + " count, " +
+                retry_add_bulk_links + " add_bulk_links, " +
+                retry_add_bulk_counts + " add_bulk_counts");
+    logger.info("SQL Link max retry: " +
+                max_add_link + " add, " +
+                max_update_link + " update, " +
+                max_delete_link + " delete, " +
+                max_get_link + " get, " +
+                max_multigetlinks + " multiget, " +
+                max_get_link_list + " get_link_list, " +
+                max_count_links + " count, " +
+                max_add_bulk_links + " add_bulk_links, " +
+                max_add_bulk_counts + " add_bulk_counts");
+    logger.info("SQL Link other: " +
+                retry_add_to_upd + " add_to_upd, " +
+                retry_upd_to_add + " upd_to_add");
+    logger.info("SQL Node total retry: " +
+                retry_add_node + " add, " +
+                retry_bulk_add_nodes + " add_bulk, " +
+                retry_get_node + " get, " +
+                retry_update_node + " update, " +
+                retry_delete_node + " delete");
+    logger.info("SQL Node max retry: " +
+                max_add_node + " add, " +
+                max_bulk_add_nodes + " add_bulk, " +
+                max_get_node + " get, " +
+                max_update_node + " update, " +
+                max_delete_node + " delete");
   }
 }
