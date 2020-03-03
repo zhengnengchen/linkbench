@@ -36,19 +36,36 @@ import java.util.Properties;
 abstract class LinkStoreSql extends GraphStore {
 
   class RetryCounter {
-    public RetryCounter() { n = 0; }
+    public RetryCounter(Integer total_ct, Integer max_ct) {
+      n = 0;
+      total_retries = total_ct;
+      max_retries = max_ct;
+    }
+    private Integer total_retries;
+    private Integer max_retries;
     private int n;
     public int getN() { return n; }
 
-    public void inc(Connection conn, SQLException ex, String caller, Logger logger) throws SQLException {
-      // TODO make retry configurable and update metrics for total retries
+    public void inc(SQLException ex, String caller, Logger logger) throws SQLException {
       n += 1;
 
-      if (n > 1 && Level.TRACE.isGreaterOrEqual(debuglevel)) {
+      if (n < 2)
+	return;
+
+      if ((n-1) > max_retries)
+	max_retries = (n-1);
+
+      if (Level.TRACE.isGreaterOrEqual(debuglevel))
         logger.trace("Retry " + n + " for " + caller);
-      }
-     
+
+      // TODO count calls, max retries?
+
+      assert(n >= 2);
+      // This is initialized to 0, inc() is called on first attempt. When n >= 2 this is a retry.
+      total_retries += 1;
+
       if (n > 1000) {
+        // TODO make retry configurable
         logger.error("Too many retries for " + caller);
         if (ex != null)
           throw ex;
@@ -56,14 +73,6 @@ abstract class LinkStoreSql extends GraphStore {
           throw new SQLException("too many retries");
       }
 
-      if (conn != null) {
-        try {
-          // Try to get connection back to clean state.
-          conn_ac0.rollback();
-        } catch (SQLException new_ex) {
-          // Don't try to handle this now.
-        }
-      }
     }
   }
 
@@ -121,20 +130,38 @@ abstract class LinkStoreSql extends GraphStore {
   PreparedStatement pstmt_link_inc_count;
   PreparedStatement pstmt_link_get_for_update;
 
-  int retry_add_link = 0;
-  int retry_update_link = 0;
-  int retry_delete_link = 0;
-  int retry_get_link = 0;
-  int retry_multigetlinks = 0;
-  int retry_get_link_list = 0;
-  int retry_count_links = 0;
-  int retry_add_bulk_links = 0;
-  int retry_add_bulk_counts = 0;
-  int retry_add_node = 0;
-  int retry_bulk_add_nodes = 0;
-  int retry_get_node = 0;
-  int retry_update_node = 0;
-  int retry_delete_node = 0;
+  private Integer retry_add_link = 0;
+  private Integer retry_update_link = 0;
+  private Integer retry_delete_link = 0;
+  private Integer retry_get_link = 0;
+  private Integer retry_multigetlinks = 0;
+  private Integer retry_get_link_list = 0;
+  private Integer retry_count_links = 0;
+  private Integer retry_add_bulk_links = 0;
+  private Integer retry_add_bulk_counts = 0;
+  private Integer retry_add_node = 0;
+  private Integer retry_bulk_add_nodes = 0;
+  private Integer retry_get_node = 0;
+  private Integer retry_update_node = 0;
+  private Integer retry_delete_node = 0;
+
+  private Integer max_add_link = 0;
+  private Integer max_update_link = 0;
+  private Integer max_delete_link = 0;
+  private Integer max_get_link = 0;
+  private Integer max_multigetlinks = 0;
+  private Integer max_get_link_list = 0;
+  private Integer max_count_links = 0;
+  private Integer max_add_bulk_links = 0;
+  private Integer max_add_bulk_counts = 0;
+  private Integer max_add_node = 0;
+  private Integer max_bulk_add_nodes = 0;
+  private Integer max_get_node = 0;
+  private Integer max_update_node = 0;
+  private Integer max_delete_node = 0;
+
+  private int retry_add_to_upd = 0;
+  private int retry_upd_to_add = 0;
 
   protected Phase phase;
 
@@ -176,7 +203,7 @@ abstract class LinkStoreSql extends GraphStore {
   }
 
   public void printMetrics() {
-    logger.info("SQL Link retry: " +
+    logger.info("SQL Link total retry: " +
                 retry_add_link + " add, " +
                 retry_update_link + " update, " +
                 retry_delete_link + " delete, " +
@@ -186,12 +213,31 @@ abstract class LinkStoreSql extends GraphStore {
                 retry_count_links + " count, " +
                 retry_add_bulk_links + " add_bulk_links, " +
                 retry_add_bulk_counts + " add_bulk_counts");
-    logger.info("SQL Node retry: " +
+    logger.info("SQL Link max retry: " +
+                max_add_link + " add, " +
+                max_update_link + " update, " +
+                max_delete_link + " delete, " +
+                max_get_link + " get, " +
+                max_multigetlinks + " multiget, " +
+                max_get_link_list + " get_link_list, " +
+                max_count_links + " count, " +
+                max_add_bulk_links + " add_bulk_links, " +
+                max_add_bulk_counts + " add_bulk_counts");
+    logger.info("SQL Link other: " +
+                retry_add_to_upd + " add_to_upd, " +
+                retry_upd_to_add + " upd_to_add");
+    logger.info("SQL Node total retry: " +
                 retry_add_node + " add, " +
                 retry_bulk_add_nodes + " add_bulk, " +
                 retry_get_node + " get, " +
                 retry_update_node + " update, " +
                 retry_delete_node + " delete");
+    logger.info("SQL Node max retry: " +
+                max_add_node + " add, " +
+                max_bulk_add_nodes + " add_bulk, " +
+                max_get_node + " get, " +
+                max_update_node + " update, " +
+                max_delete_node + " delete");
   }
 
   public void initialize(Properties props, Phase currentPhase, int threadId) {
@@ -588,49 +634,54 @@ abstract class LinkStoreSql extends GraphStore {
 
   protected LinkWriteResult newLinkLoop(String dbid, Link l, boolean noinverse,
 		                        boolean insert_first, String caller) throws SQLException {
-    RetryCounter rc = new RetryCounter();
     boolean do_insert = insert_first;
-    boolean first = true;
-
     SQLException last_ex = null;
+    RetryCounter rc_add = new RetryCounter(retry_add_link, max_add_link);
+    RetryCounter rc_upd = new RetryCounter(retry_update_link, max_update_link);
+
+    // Sorry this is complicated. But it allows addLink to work when the link exists by switching
+    // to update. And it allows updateLink to work when the link doesn't exist by switching to
+    // insert.
 
     while (true) {
-      // Enforce limit on retries
-      rc.inc(conn_ac0, last_ex, caller, logger);
-
-      if (!first) {
-        if (insert_first)
-          retry_add_link += 1;
-        else
-          retry_update_link += 1;
-      }
-      first = false;
 
       try {
+
         if (do_insert) {
+          rc_add.inc(last_ex, caller, logger);
           addLinkImpl(dbid, l, noinverse);
 	  return LinkWriteResult.LINK_INSERT;
+
 	} else {
-          do_insert = true;
+          rc_upd.inc(last_ex, caller, logger);
 	  LinkWriteResult wr = updateLinkImpl(dbid, l, noinverse);
-	  if (wr == LinkWriteResult.LINK_NO_CHANGE || wr == LinkWriteResult.LINK_UPDATE)
+
+	  if (wr == LinkWriteResult.LINK_NO_CHANGE || wr == LinkWriteResult.LINK_UPDATE) {
             return wr;
-	  else
-	    assert(wr == LinkWriteResult.LINK_NOT_DONE);
+	  } else if (wr == LinkWriteResult.LINK_NOT_DONE) {
+	    // Row does not exist, switch to insert
+            do_insert = true;
+	    retry_upd_to_add += 1;
+	  } else {
+	    String s = "newLinkLoop bad result for update(" + wr + ") with id1=" + l.id1 +
+	               " id2=" + l.id2 + " link_type=" + l.link_type;
+	    logger.error(s);
+	    throw new RuntimeException(s);
+	  }
 	}
 
       } catch (SQLException ex) {
         last_ex = ex;
+        conn_ac0.rollback();
 
 	if (isDupKeyError(ex)) {
+	  // Row exists, switch to update
 	  do_insert = false;
-	  continue;
-	}
-
-        if (!processSQLException(ex, caller)) {
-	  conn_ac0.rollback();
+          retry_add_to_upd += 1;
+	} else if (!processSQLException(ex, caller)) {
           throw ex;
 	}
+	// At this point the insert or update can be retried
       }
     }
   }
@@ -779,24 +830,23 @@ abstract class LinkStoreSql extends GraphStore {
   @Override
   public boolean deleteLink(String dbid, long id1, long link_type, long id2,
                             boolean noinverse, boolean expunge) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_delete_link, max_delete_link);
     SQLException last_ex = null;
 
     while (true) {
       // Enforce limit on retries
-      rc.inc(conn_ac0, last_ex, "deleteLink", logger);
+      rc.inc(last_ex, "deleteLink", logger);
 
       try {
         return deleteLinkImpl(dbid, id1, link_type, id2, noinverse, expunge);
       } catch (SQLException ex) {
         last_ex = ex;
+        conn_ac0.rollback();
 
         if (!processSQLException(ex, "deleteLink")) {
-	  conn_ac0.rollback();
           throw ex;
 	}
-
-	retry_delete_link += 1;
+	// At this point the insert or update can be retried
       }
     }
   }
@@ -878,12 +928,12 @@ abstract class LinkStoreSql extends GraphStore {
   // lookup using id1, type, id2
   @Override
   public Link getLink(String dbid, long id1, long link_type, long id2) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_get_link, max_get_link);
     SQLException last_ex = null;
 
     while (true) {
       // Enforce limit on retries
-      rc.inc(null, last_ex, "getLink", logger);
+      rc.inc(last_ex, "getLink", logger);
 
       try {
         return getLinkImpl(dbid, id1, link_type, id2);
@@ -892,8 +942,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "getLink"))
           throw ex;
-
-        retry_get_link += 1;
       }
     }
   }
@@ -924,11 +972,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public Link[] multigetLinks(String dbid, long id1, long link_type, long[] id2s) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_multigetlinks, max_multigetlinks);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "multigetLinks", logger);
+      rc.inc(last_ex, "multigetLinks", logger);
 
       try {
         return multigetLinksImpl(dbid, id1, link_type, id2s);
@@ -937,8 +985,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "multigetLinks"))
           throw ex;
-
-        retry_multigetlinks += 1;
       }
     }
   }
@@ -999,11 +1045,11 @@ abstract class LinkStoreSql extends GraphStore {
   public Link[] getLinkList(String dbid, long id1, long link_type,
                             long minTimestamp, long maxTimestamp,
                             int offset, int limit) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_get_link_list, max_get_link_list);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "getLinkList", logger);
+      rc.inc(last_ex, "getLinkList", logger);
 
       try {
         return getLinkListImpl(dbid, id1, link_type, minTimestamp,
@@ -1013,8 +1059,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "getLinkListImpl"))
           throw ex;
-
-        retry_get_link_list += 1;
       }
     }
   }
@@ -1071,11 +1115,11 @@ abstract class LinkStoreSql extends GraphStore {
   // count the #links
   @Override
   public long countLinks(String dbid, long id1, long link_type) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_count_links, max_count_links);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "countLinks", logger);
+      rc.inc(last_ex, "countLinks", logger);
 
       try {
         return countLinksImpl(dbid, id1, link_type);
@@ -1084,8 +1128,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "countLinks"))
           throw ex;
-
-        retry_count_links += 1;
       }
     }
   }
@@ -1114,12 +1156,12 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public void addBulkLinks(String dbid, List<Link> links, boolean noinverse) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_add_bulk_links, max_add_bulk_links);
     SQLException last_ex = null;
 
     // TODO - count and limit retries
     while (true) {
-      rc.inc(null, last_ex, "addBulkLinks", logger);
+      rc.inc(last_ex, "addBulkLinks", logger);
 
       try {
         addBulkLinksImpl(dbid, links, noinverse);
@@ -1129,8 +1171,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "addBulkLinks"))
           throw ex;
-
-        retry_add_bulk_links += 1;
       }
     }
   }
@@ -1183,11 +1223,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public void addBulkCounts(String dbid, List<LinkCount> counts) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_add_bulk_counts, max_add_bulk_counts);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "addBulkCounts", logger);
+      rc.inc(last_ex, "addBulkCounts", logger);
 
       try {
         addBulkCountsImpl(dbid, counts);
@@ -1197,8 +1237,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "addBulkCounts"))
           throw ex;
-
-        retry_add_bulk_counts += 1;
       }
     }
   }
@@ -1251,11 +1289,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public long addNode(String dbid, Node node) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_add_node, max_add_node);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "addNode", logger);
+      rc.inc(last_ex, "addNode", logger);
 
       try {
         long ids[] = bulkAddNodesImpl(dbid, Collections.singletonList(node));
@@ -1270,19 +1308,17 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "addNode"))
           throw ex;
-
-        retry_add_node += 1;
       }
     }
   }
 
   @Override
   public long[] bulkAddNodes(String dbid, List<Node> nodes) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_bulk_add_nodes, max_bulk_add_nodes);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "bulkAddNodes", logger);
+      rc.inc(last_ex, "bulkAddNodes", logger);
 
       try {
         return bulkAddNodesImpl(dbid, nodes);
@@ -1291,8 +1327,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "bulkAddNodes"))
           throw ex;
-
-	retry_bulk_add_nodes += 1;
       }
     }
   }
@@ -1351,11 +1385,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public Node getNode(String dbid, int type, long id) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_get_node, max_get_node);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "getNode", logger);
+      rc.inc(last_ex, "getNode", logger);
 
       try {
         return getNodeImpl(dbid, type, id);
@@ -1364,8 +1398,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "getNode"))
           throw ex;
-
-        retry_get_node += 1;
       }
     }
   }
@@ -1403,11 +1435,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public boolean updateNode(String dbid, Node node) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_update_node, max_update_node);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "updateNode", logger);
+      rc.inc(last_ex, "updateNode", logger);
 
       try {
         return updateNodeImpl(dbid, node);
@@ -1416,8 +1448,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "updateNode"))
           throw ex;
-
-        retry_update_node += 1;
       }
     }
   }
@@ -1451,11 +1481,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   @Override
   public boolean deleteNode(String dbid, int type, long id) throws SQLException {
-    RetryCounter rc = new RetryCounter();
+    RetryCounter rc = new RetryCounter(retry_delete_node, max_delete_node);
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(null, last_ex, "deleteNode", logger);
+      rc.inc(last_ex, "deleteNode", logger);
 
       try {
         return deleteNodeImpl(dbid, type, id);
@@ -1464,8 +1494,6 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "deleteNode"))
           throw ex;
-
-        retry_delete_node += 1;
       }
     }
   }
