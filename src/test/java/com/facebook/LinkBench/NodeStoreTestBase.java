@@ -62,7 +62,7 @@ public abstract class NodeStoreTestBase extends TestCase {
 
     // Set up db
     initNodeStore(props);
-    getNodeStoreHandle(true).resetNodeStore(testDB, 0);
+    getNodeStoreHandle(true).resetNodeStore(testDB, 1);
   }
 
   @Test
@@ -123,7 +123,7 @@ public abstract class NodeStoreTestBase extends TestCase {
   @Test
   public void testUpdate() throws IOException, Exception {
     NodeStore store = getNodeStoreHandle(true);
-    store.resetNodeStore(testDB, 0);
+    store.resetNodeStore(testDB, 1);
 
     Node test = new Node(-1, 1234, 3, 3, "the quick brown fox".getBytes());
     test.id = store.addNode(testDB, test);
@@ -168,7 +168,7 @@ public abstract class NodeStoreTestBase extends TestCase {
     }
 
     NodeStore store = getNodeStoreHandle(true);
-    store.resetNodeStore(testDB, 0);
+    store.resetNodeStore(testDB, 1);
 
     Node test = new Node(-1, 1234, 3, 3, data);
     test.id = store.addNode(testDB, test);

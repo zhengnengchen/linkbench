@@ -46,7 +46,7 @@ public class MySqlLinkStoreTest extends LinkStoreTestBase {
   @Override
   protected int getRequestCount() {
     // Fewer requests to keep test quick
-    return 10000;
+    return 20000;
   }
 
   protected Properties basicProps() {

@@ -708,35 +708,23 @@ public abstract class LinkStoreTestBase extends TestCase {
       latencyStats.displayLatencyStats();
       latencyStats.printCSVStats(System.out, true);
 
-      System.err.println("testRequester: reqs=" + requests +
-		         " add=" + reqStore.adds +
-			 " upd=" + reqStore.updates +
-			 " del=" + reqStore.deletes +
-			 " multiget=" + reqStore.multigetLinks +
-			 " getlinklist=" + reqStore.getLinkLists);
+      logger.info("testRequester: reqs=" + requests +
+                  " add=" + reqStore.adds +
+                  " upd=" + reqStore.updates +
+                  " del=" + reqStore.deletes +
+                  " multiget=" + reqStore.multigetLinks +
+                  " getlinklist=" + reqStore.getLinkLists);
 
       assertEquals(requests, reqStore.adds + reqStore.updates + reqStore.deletes +
           reqStore.countLinks + reqStore.multigetLinks + reqStore.getLinkLists);
-      // Check that the proportion of operations is roughly right - within 1%
-      // For now, updates are actually implemented as add operations
-      assertTrue(
-          "adds=" + reqStore.adds,
-          Math.abs(reqStore.adds / (double)requests - (p_add + p_up)) < 0.01);
-      assertTrue(
-          "updates=" + reqStore.updates,
-          Math.abs(reqStore.updates / (double)requests - 0.0) < 0.01);
-      assertTrue(
-          "deletes=" + reqStore.deletes,
-          Math.abs(reqStore.deletes / (double)requests - p_del) < 0.01);
-      assertTrue(
-          "countLinks=" + reqStore.countLinks,
-          Math.abs(reqStore.countLinks / (double)requests - p_count) < 0.01);
-      assertTrue(
-          "multigetLinks=" + reqStore.multigetLinks,
-          Math.abs(reqStore.multigetLinks / (double)requests - p_multiget) < 0.01);
-      assertTrue(
-          "getLinkLists=" + reqStore.getLinkLists,
-          Math.abs(reqStore.getLinkLists / (double)requests - p_getlinks) < 0.01);
+      // Check that the proportion of operations is roughly right - within 5%
+      double fuzz = 0.05;
+      assertTrue(Math.abs(reqStore.adds / (double)requests - p_add) < fuzz);
+      assertTrue(Math.abs(reqStore.updates / (double)requests - p_upd) < fuzz);
+      assertTrue(Math.abs(reqStore.deletes / (double)requests - p_del) < fuzz);
+      assertTrue(Math.abs(reqStore.countLinks / (double)requests - p_count) < fuzz);
+      assertTrue(Math.abs(reqStore.multigetLinks / (double)requests - p_multiget) < fuzz);
+      assertTrue(Math.abs(reqStore.getLinkLists / (double)requests - p_getlinks) < fuzz);
       assertEquals(0, reqStore.bulkLoadCountOps);
       assertEquals(0, reqStore.bulkLoadLinkOps);
     } finally {

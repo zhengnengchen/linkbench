@@ -29,6 +29,9 @@ public interface NodeStore {
   // Limit data to 1MB
   public static final long MAX_NODE_DATA = 1024 * 1024;
 
+  /** Print internal metrics to the logger */
+  public abstract void printMetrics();
+
   /** initialize the store object */
   public void initialize(Properties p,
       Phase currentPhase, int threadId) throws IOException, Exception;

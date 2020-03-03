@@ -554,7 +554,7 @@ public class LinkBenchRequest implements Runnable {
 
         starttime = System.nanoTime();
         // no inverses for now
-        boolean found1 = linkStore.addLink(dbid, link, true);
+        boolean found1 = linkStore.updateLink(dbid, link, true);
         boolean found = found1;
         endtime = System.nanoTime();
         if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
@@ -879,6 +879,10 @@ public class LinkBenchRequest implements Runnable {
         break;
       }
     }
+
+    linkStore.printMetrics();
+    if (nodeStore != null && nodeStore != linkStore)
+      nodeStore.printMetrics();
 
     // Do final update of statistics
     progressTracker.update(requestsSinceLastUpdate);
