@@ -36,10 +36,6 @@ import java.util.ArrayList;
 import java.util.Properties;
 
 public class LinkStorePgsql extends LinkStoreSql {
-  private int bulkInsertSize = 256;
-
-  /* PostgreSQL database server configuration keys */
-  public static final String CONFIG_BULK_INSERT_BATCH = "postgres_bulk_insert_batch";
 
   public LinkStorePgsql() {
     super();
@@ -52,8 +48,6 @@ public class LinkStorePgsql extends LinkStoreSql {
 
   public void initialize(Properties props, Phase currentPhase, int threadId) {
     super.initialize(props, currentPhase, threadId);
-    if (props.containsKey(CONFIG_BULK_INSERT_BATCH))
-      bulkInsertSize = ConfigUtil.getInt(props, CONFIG_BULK_INSERT_BATCH);
   }
 
   protected PreparedStatement makeAddLinkIncCountPS() throws SQLException {
@@ -127,7 +121,6 @@ public class LinkStorePgsql extends LinkStoreSql {
                                    dbid, nodetable, startID));
   }
 
-  public int bulkLoadBatchSize() { return bulkInsertSize; }
   String getDefaultPort() { return "5432"; }
 
   protected void addLinkChangeCount(String dbid, Link l, int base_count, PreparedStatement pstmt)

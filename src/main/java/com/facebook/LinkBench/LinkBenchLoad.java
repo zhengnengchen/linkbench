@@ -476,13 +476,11 @@ public class LinkBenchLoad implements Runnable {
       countsloaded++;
 
       if (!singleAssoc && outlink_ix == nlinks - 1) {
-        long timetaken = (System.nanoTime() - timestart);
-
         // convert to microseconds
-        stats.addStats(LinkBenchOp.LOAD_LINK, timetaken/1000, false);
+        long timetaken = (System.nanoTime() - timestart)/1000;
 
-        latencyStats.recordLatency(loaderID,
-                      LinkBenchOp.LOAD_LINK, timetaken);
+        stats.addStats(LinkBenchOp.LOAD_LINK, timetaken, false);
+        latencyStats.recordLatency(loaderID, LinkBenchOp.LOAD_LINK, timetaken);
       }
 
     } catch (Throwable e){//Catch exception if any
@@ -510,14 +508,13 @@ public class LinkBenchLoad implements Runnable {
       linksloaded += nlinks;
       loadBuffer.clear();
 
-      long timetaken = (System.nanoTime() - timestart);
-
       // convert to microseconds
-      stats.addStats(LinkBenchOp.LOAD_LINKS_BULK, timetaken/1000, false);
-      stats.addStats(LinkBenchOp.LOAD_LINKS_BULK_NLINKS, nlinks, false);
+      long timetaken = (System.nanoTime() - timestart)/1000;
 
-      latencyStats.recordLatency(loaderID, LinkBenchOp.LOAD_LINKS_BULK,
-                                                             timetaken);
+      stats.addStats(LinkBenchOp.LOAD_LINKS_BULK, timetaken, false);
+      stats.addStats(LinkBenchOp.LOAD_LINKS_BULK_NLINKS, nlinks, false);
+      latencyStats.recordLatency(loaderID, LinkBenchOp.LOAD_LINKS_BULK, timetaken);
+
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;
@@ -544,14 +541,13 @@ public class LinkBenchLoad implements Runnable {
       countsloaded += ncounts;
       loadBuffer.clear();
 
-      long timetaken = (System.nanoTime() - timestart);
-
       // convert to microseconds
-      stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK, timetaken/1000, false);
-      stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK_NLINKS, ncounts, false);
+      long timetaken = (System.nanoTime() - timestart)/1000;
 
-      latencyStats.recordLatency(loaderID, LinkBenchOp.LOAD_COUNTS_BULK,
-                                                             timetaken);
+      stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK, timetaken, false);
+      stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK_NLINKS, ncounts, false);
+      latencyStats.recordLatency(loaderID, LinkBenchOp.LOAD_COUNTS_BULK, timetaken);
+
     } catch (Throwable e){//Catch exception if any
         long endtime2 = System.nanoTime();
         long timetaken2 = (endtime2 - timestart)/1000;

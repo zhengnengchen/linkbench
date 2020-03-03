@@ -27,15 +27,35 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
   protected Level debuglevel;
   protected Logger logger;
 
+  public static final String CONFIG_BULK_INSERT_COUNT = "bulk_insert_count";
+  public static final String CONFIG_BULK_INSERT_KB = "bulk_insert_kb";
+
+  // Max number of Nodes, Links and Counts in a bulk load insert
+  protected int bulkInsertCount = 1024;
+
+  // Max size of Nodes in a bulk load insert. Not used to limit Link or Count
+  // because they are smaller. When 0 there is no limit.
+  protected int bulkInsertKB = 0;
+
   public GraphStore() {
     logger = Logger.getLogger();
   }
 
   public void initialize(Properties props, Phase phase, int threadId) {
     debuglevel = ConfigUtil.getDebugLevel(props);
+
     if (props.containsKey(Config.CHECK_COUNT))
       check_count = ConfigUtil.getBool(props, Config.CHECK_COUNT);
+
+    if (props.containsKey(CONFIG_BULK_INSERT_COUNT))
+      bulkInsertCount = ConfigUtil.getInt(props, CONFIG_BULK_INSERT_COUNT);
+
+    if (props.containsKey(CONFIG_BULK_INSERT_KB))
+      bulkInsertKB = ConfigUtil.getInt(props, CONFIG_BULK_INSERT_KB);
   }
+
+  public int bulkLoadBatchSize() { return bulkInsertCount; }
+  public int bulkLoadBatchKB() { return bulkInsertKB; }
 
   /** Provide generic implementation */
   public long[] bulkAddNodes(String dbid, List<Node> nodes) throws Exception {

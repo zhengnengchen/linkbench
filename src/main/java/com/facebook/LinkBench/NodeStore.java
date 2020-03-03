@@ -75,6 +75,7 @@ public interface NodeStore {
    * @return
    */
   public int bulkLoadBatchSize();
+  public int bulkLoadBatchKB();
 
   /**
    * Get a node of the specified type

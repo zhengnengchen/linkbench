@@ -134,6 +134,8 @@ public class NodeLoader implements Runnable {
       }
 
       int bulkLoadBatchSize = nodeStore.bulkLoadBatchSize();
+      int bulkLoadBatchKB = nodeStore.bulkLoadBatchKB();
+      long nodeBytes = 0;
       ArrayList<Node> nodeLoadBuffer = new ArrayList<Node>(bulkLoadBatchSize);
 
       long maxId = ConfigUtil.getLong(props, Config.MAX_ID);
@@ -142,8 +144,16 @@ public class NodeLoader implements Runnable {
       nextReport = startId + REPORT_INTERVAL;
       startTime_ms = System.currentTimeMillis();
       lastDisplayTime_ms = startTime_ms;
+
       for (long id = startId; id < maxId; id++) {
-        genNode(rng, id, nodeLoadBuffer, bulkLoadBatchSize);
+        nodeBytes += genNode(rng, id, nodeLoadBuffer);
+	
+	if (nodeLoadBuffer.size() >= bulkLoadBatchSize ||
+	    ((bulkLoadBatchKB > 0) && ((nodeBytes / 1024) >= bulkLoadBatchKB))) {
+	  nodeBytes = 0;
+          loadNodes(nodeLoadBuffer);
+          nodeLoadBuffer.clear();
+        }
 
         long now = System.currentTimeMillis();
         if (lastDisplayTime_ms + displayFreq_ms <= now) {
@@ -171,18 +181,15 @@ public class NodeLoader implements Runnable {
    * Create and insert the node into the DB
    * @param rng
    * @param id1
+   * @return size of Node in bytes
    */
-  private void genNode(Random rng, long id1, ArrayList<Node> nodeLoadBuffer,
-                          int bulkLoadBatchSize) {
+  private long genNode(Random rng, long id1, ArrayList<Node> nodeLoadBuffer) {
     int dataLength = (int)nodeDataLength.choose(rng);
     Node node = new Node(id1, LinkStore.DEFAULT_NODE_TYPE, 1,
                         (int)(System.currentTimeMillis()/1000),
                         nodeDataGen.fill(rng, new byte[dataLength]));
     nodeLoadBuffer.add(node);
-    if (nodeLoadBuffer.size() >= bulkLoadBatchSize) {
-      loadNodes(nodeLoadBuffer);
-      nodeLoadBuffer.clear();
-    }
+    return dataLength + 24;
   }
 
   private void loadNodes(ArrayList<Node> nodeLoadBuffer) {
@@ -190,7 +197,8 @@ public class NodeLoader implements Runnable {
     long timestart = System.nanoTime();
     try {
       actualIds = nodeStore.bulkAddNodes(dbid, nodeLoadBuffer);
-      long timetaken = (System.nanoTime() - timestart);
+      // convert to microseconds
+      long timetaken = (System.nanoTime() - timestart)/1000;
       nodesLoaded += nodeLoadBuffer.size();
 
       // Check that expected ids were allocated
@@ -204,10 +212,8 @@ public class NodeLoader implements Runnable {
 
       nodeLoadBuffer.clear();
 
-      // convert to microseconds
-      stats.addStats(LinkBenchOp.LOAD_NODE_BULK, timetaken/1000, false);
-      latencyStats.recordLatency(loaderId,
-                    LinkBenchOp.LOAD_NODE_BULK, timetaken);
+      stats.addStats(LinkBenchOp.LOAD_NODE_BULK, timetaken, false);
+      latencyStats.recordLatency(loaderId, LinkBenchOp.LOAD_NODE_BULK, timetaken);
 
       if (nodesLoaded >= nextReport) {
         double totalTimeTaken = (System.currentTimeMillis() - startTime_ms) / 1000.0;
