@@ -212,6 +212,10 @@ public class LinkBenchDriver {
     // id1 at which to start
     long startid1 = ConfigUtil.getLong(props, Config.MIN_ID);
 
+    boolean neverChange = false;
+    if (props.containsKey(Config.NEVER_CHANGE))
+      neverChange = ConfigUtil.getBool(props, Config.NEVER_CHANGE);
+
     // Create loaders
     logger.info("Starting loaders " + nLinkLoaders);
     logger.debug("Bulk Load setting: " + bulkLoad);
@@ -251,10 +255,12 @@ public class LinkBenchDriver {
 
     long expectedNodes = maxid1 - startid1;
     long actualLinks = 0;
+    long actualCounts = 0;
     long actualNodes = 0;
     for (final Runnable l:loaders) {
       if (l instanceof LinkBenchLoad) {
         actualLinks += ((LinkBenchLoad)l).getLinksLoaded();
+        actualCounts += ((LinkBenchLoad)l).getCountsLoaded();
       } else {
         assert(l instanceof NodeLoader);
         actualNodes += ((NodeLoader)l).getNodesLoaded();
@@ -268,13 +274,28 @@ public class LinkBenchDriver {
     }
 
     double loadTime_s = (loadTime/1000.0);
-    logger.info(String.format("LOAD PHASE COMPLETED. " +
-        " Loaded %d nodes (Expected %d)." +
-        " Loaded %d links (%.2f links per node). " +
-        " Took %.1f seconds.  Links/second = %d",
-        actualNodes, expectedNodes, actualLinks,
-        actualLinks / (double) actualNodes, loadTime_s,
-        (long) Math.round(actualLinks / loadTime_s)));
+    if (neverChange) {
+      logger.info(String.format("LOAD PHASE COMPLETED. " +
+          " Loaded %d nodes (Expected %d)." +
+          " Loaded %d links (%.2f links per node). " +
+          " Took %.1f seconds.  Links/second = %d",
+          actualNodes, expectedNodes, actualLinks,
+          actualLinks / (double) actualNodes, loadTime_s,
+          (long) Math.round(actualLinks / loadTime_s)));
+    } else {
+      logger.info(String.format("LOAD PHASE COMPLETED." +
+          " Loaded %d nodes (Expected %d)," +
+          " %d links (%.2f /node)," +
+          " %d counts (%.2f /node)." +
+          " %.1f seconds, %d Links/s, %d (link+count)/s, %d (link+count+node)/s",
+          actualNodes, expectedNodes,
+	  actualLinks, actualLinks / (double) actualNodes,
+	  actualCounts, actualCounts / (double) actualNodes,
+	  loadTime_s,
+	  (long) Math.round(actualLinks / loadTime_s),
+	  (long) Math.round((actualLinks+actualCounts) / loadTime_s),
+	  (long) Math.round((actualLinks+actualCounts+actualNodes) / loadTime_s)));
+    }
   }
 
   /**

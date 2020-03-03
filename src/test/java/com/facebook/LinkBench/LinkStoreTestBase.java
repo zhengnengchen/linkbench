@@ -904,7 +904,7 @@ public abstract class LinkStoreTestBase extends TestCase {
     chunk_q_list.add(chunk_q);
 
 
-    LoadProgress tracker = new LoadProgress(logger, idCount, 1000);
+    LoadProgress tracker = new LoadProgress(logger, idCount, 1000, false);
     tracker.startTimer();
     LinkBenchLoad loader = new LinkBenchLoad(store,
         props, latencyStats, System.out, 0, false, chunk_q_list, tracker);

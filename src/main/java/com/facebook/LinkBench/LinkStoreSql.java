@@ -308,14 +308,10 @@ abstract class LinkStoreSql extends GraphStore {
         "(type, version, time, data) " +
         "VALUES ");
 
-    boolean first = true;
     for (int x=0; x < num_entries; x++) {
-      if (first) {
-        first = false;
-      } else {
-        sql.append(",");
-      }
       sql.append("(?, ?, ?, ?)");
+      if (x < (num_entries-1))
+        sql.append(",");
     }
     String sql_str = sql.toString();
 
@@ -342,14 +338,10 @@ abstract class LinkStoreSql extends GraphStore {
         "(id1, id2, link_type, visibility, data, version, time) " +
         "VALUES ");
 
-    boolean first = true;
     for (int x=0; x < num_entries; x++) {
-      if (first) {
-        first = false;
-      } else {
-        sql.append(",");
-      }
       sql.append("(?, ?, ?, ?, ?, ?, ?)");
+      if (x < (num_entries-1))
+        sql.append(",");
     }
     String sql_str = sql.toString();
 
@@ -368,14 +360,10 @@ abstract class LinkStoreSql extends GraphStore {
         "(id, link_type, time, version, count) " +
         "VALUES ");
 
-    boolean first = true;
     for (int x=0; x < num_entries; x++) {
-      if (first) {
-        first = false;
-      } else {
-        sql.append(",");
-      }
       sql.append("(?, ?, ?, ?, ?)");
+      if (x < (num_entries-1))
+        sql.append(",");
     }
     String sql_str = sql.toString();
 
