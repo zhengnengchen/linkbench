@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Properties;
 
 public class LinkStorePgsql extends LinkStoreSql {
+  private int bulkInsertSize = 256;
 
   /* PostgreSQL database server configuration keys */
   public static final String CONFIG_BULK_INSERT_BATCH = "postgres_bulk_insert_batch";
@@ -51,13 +52,8 @@ public class LinkStorePgsql extends LinkStoreSql {
 
   public void initialize(Properties props, Phase currentPhase, int threadId) {
     super.initialize(props, currentPhase, threadId);
-
-    if (port == null || port.equals("")) port = "5432"; //use default port
-    phase = currentPhase;
-
-    if (props.containsKey(CONFIG_BULK_INSERT_BATCH)) {
+    if (props.containsKey(CONFIG_BULK_INSERT_BATCH))
       bulkInsertSize = ConfigUtil.getInt(props, CONFIG_BULK_INSERT_BATCH);
-    }
   }
 
   protected PreparedStatement makeAddLinkIncCountPS() throws SQLException {
@@ -97,7 +93,6 @@ public class LinkStorePgsql extends LinkStoreSql {
   }
 
   protected String getJdbcOptions() {
-    // TODO are these valid for PG?
     return "?elideSetAutoCommits=true" +
            "&useLocalTransactionState=true" +
            "&allowMultiQueries=true" +
@@ -132,4 +127,31 @@ public class LinkStorePgsql extends LinkStoreSql {
                                    dbid, nodetable, startID));
   }
 
+  public int bulkLoadBatchSize() { return bulkInsertSize; }
+  String getDefaultPort() { return "5432"; }
+
+  protected void addLinkChangeCount(String dbid, Link l, int base_count, PreparedStatement pstmt)
+      throws SQLException {
+
+    if (Level.TRACE.isGreaterOrEqual(debuglevel))
+      logger.trace("addLink change count");
+
+    long now = (new Date()).getTime();
+    pstmt.setLong(1, l.id1);
+    pstmt.setLong(2, l.link_type);
+    pstmt.setLong(3, base_count);
+    pstmt.setLong(4, now);
+    pstmt.setLong(5, base_count);
+    pstmt.setLong(6, now);
+
+    int update_res = pstmt.executeUpdate();
+    if (update_res != 1) {
+      String e = "addLink increment count failed with res=" +
+                 update_res + " for id1=" + l.id1 +
+                 " id2=" + l.id2 + " link_type=" + l.link_type;
+      logger.error(e);
+      conn_ac0.rollback();
+      throw new RuntimeException(e);
+    }
+  }
 }

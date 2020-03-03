@@ -57,6 +57,7 @@ public class ConfigUtil {
   public static void setupLogging(Properties props, String logFile)
                                     throws LinkBenchConfigError, IOException {
     Level logLevel = ConfigUtil.getDebugLevel(props);
+    // System.err.println("setupLogging level is " + logLevel);
     Logger.getLogger().setLevel(logLevel);
   }
 

@@ -73,9 +73,6 @@ abstract class LinkStoreSql extends GraphStore {
   public static final String CONFIG_USER = "user";
   public static final String CONFIG_PASSWORD = "password";
 
-  // TODO: can this be increased
-  public static final int DEFAULT_BULKINSERT_SIZE = 256;
-
   String linktable;
   String counttable;
   String nodetable;
@@ -141,8 +138,6 @@ abstract class LinkStoreSql extends GraphStore {
 
   protected Phase phase;
 
-  int bulkInsertSize = DEFAULT_BULKINSERT_SIZE;
-
   /**
    * Set of all JDBC SQLState strings that indicate a transient error
    * that should be handled by retrying
@@ -162,8 +157,14 @@ abstract class LinkStoreSql extends GraphStore {
   // If not code can be changed to have an abstract method for doing this operation.
   abstract PreparedStatement makeAddLinkIncCountPS() throws SQLException;
 
+  abstract void addLinkChangeCount(String dbid, Link l, int base_count, PreparedStatement pstmt)
+      throws SQLException;
+
   // Don't implement his here as the DBMS might use a hint 
   abstract PreparedStatement makeGetLinkListPS() throws SQLException;
+
+  // abstract public int bulkLoadBatchSize();
+  abstract String getDefaultPort();
     
   public LinkStoreSql() {
     super();
@@ -218,6 +219,11 @@ abstract class LinkStoreSql extends GraphStore {
     user = ConfigUtil.getPropertyRequired(props, CONFIG_USER);
     pwd = ConfigUtil.getPropertyRequired(props, CONFIG_PASSWORD);
     port = props.getProperty(CONFIG_PORT);
+
+    if (port == null || port.equals(""))
+      port = getDefaultPort();
+
+    phase = currentPhase;
 
     // connect
     try {
@@ -549,7 +555,7 @@ abstract class LinkStoreSql extends GraphStore {
                      " FROM " + dbid + "." + assoctable +
                      " WHERE id1 = " + id +
                      " AND link_type = " + link_type +
-                     " AND visibility = " + LinkStore.VISIBILITY_DEFAULT;
+                     " AND visibility = " + VISIBILITY_DEFAULT;
 
     String select2 = "SELECT COALESCE (SUM(count), 0) as ct" +
                      " FROM " + dbid + "." + counttable +
@@ -580,8 +586,8 @@ abstract class LinkStoreSql extends GraphStore {
     }
   }
 
-  protected boolean newLinkLoop(String dbid, Link l, boolean noinverse,
-		                boolean insert_first, String caller) throws SQLException {
+  protected LinkWriteResult newLinkLoop(String dbid, Link l, boolean noinverse,
+		                        boolean insert_first, String caller) throws SQLException {
     RetryCounter rc = new RetryCounter();
     boolean do_insert = insert_first;
     boolean first = true;
@@ -601,12 +607,17 @@ abstract class LinkStoreSql extends GraphStore {
       first = false;
 
       try {
-        if (do_insert)
-          return addLinkImpl(dbid, l, noinverse);
-        else if (updateLinkImpl(dbid, l, noinverse))
-          return true;
-	else
+        if (do_insert) {
+          addLinkImpl(dbid, l, noinverse);
+	  return LinkWriteResult.LINK_INSERT;
+	} else {
           do_insert = true;
+	  LinkWriteResult wr = updateLinkImpl(dbid, l, noinverse);
+	  if (wr == LinkWriteResult.LINK_NO_CHANGE || wr == LinkWriteResult.LINK_UPDATE)
+            return wr;
+	  else
+	    assert(wr == LinkWriteResult.LINK_NOT_DONE);
+	}
 
       } catch (SQLException ex) {
         last_ex = ex;
@@ -616,18 +627,20 @@ abstract class LinkStoreSql extends GraphStore {
 	  continue;
 	}
 
-        if (!processSQLException(ex, caller))
+        if (!processSQLException(ex, caller)) {
+	  conn_ac0.rollback();
           throw ex;
+	}
       }
     }
   }
 
   @Override
-  public boolean addLink(String dbid, Link l, boolean noinverse) throws SQLException {
+  public LinkWriteResult addLink(String dbid, Link l, boolean noinverse) throws SQLException {
     return newLinkLoop(dbid, l, noinverse, true, "addLink");
   }
 
-  protected boolean addLinkImpl(String dbid, Link l, boolean noinverse) throws SQLException {
+  protected void addLinkImpl(String dbid, Link l, boolean noinverse) throws SQLException {
     checkDbid(dbid);
 
     if (Level.TRACE.isGreaterOrEqual(debuglevel))
@@ -648,26 +661,7 @@ abstract class LinkStoreSql extends GraphStore {
     if (l.visibility != VISIBILITY_DEFAULT)
       base_count = 0;
 
-    if (Level.TRACE.isGreaterOrEqual(debuglevel))
-      logger.trace("addLink change count");
-
-    long now = (new Date()).getTime();
-    pstmt_add_link_inc_count.setLong(1, l.id1);
-    pstmt_add_link_inc_count.setLong(2, l.link_type);
-    pstmt_add_link_inc_count.setLong(3, base_count);
-    pstmt_add_link_inc_count.setLong(4, now);
-    pstmt_add_link_inc_count.setLong(5, base_count);
-    pstmt_add_link_inc_count.setLong(6, now);
-
-    int update_res = pstmt_add_link_inc_count.executeUpdate();
-    if (update_res != 1) {
-      String e = "addLink increment count failed with res=" +
-                 update_res + " for id1=" + l.id1 +
-                 " id2=" + l.id2 + " link_type=" + l.link_type;
-      logger.error(e);
-      conn_ac0.rollback();
-      throw new RuntimeException(e);
-    }
+    addLinkChangeCount(dbid, l, base_count, pstmt_add_link_inc_count);
 
     if (Level.TRACE.isGreaterOrEqual(debuglevel))
       logger.trace("addLink commit with count change");
@@ -676,8 +670,6 @@ abstract class LinkStoreSql extends GraphStore {
 
     if (check_count)
       testCount(dbid, linktable, counttable, l.id1, l.link_type);
-
-    return false;
   }
 
   protected int getVisibilityForUpdate(long id1, long link_type, long id2, String caller)
@@ -688,10 +680,16 @@ abstract class LinkStoreSql extends GraphStore {
     pstmt_link_get_for_update.setLong(3, link_type);
     ResultSet result = pstmt_link_get_for_update.executeQuery();
 
-    // TODO add VISIBLITY_NOT_FOUND
-    int visibility = -1;
-    if (result.next())
+    int visibility = VISIBILITY_NOT_FOUND;
+    if (result.next()) {
       visibility = result.getInt(1);
+      if (visibility != VISIBILITY_DEFAULT && visibility != VISIBILITY_HIDDEN) {
+        String s = "Bad value for visibility=" + visibility + " with " +
+                   "id1=" + id1 + " id2=" + id2 + " link_type=" + link_type;
+        logger.error(s);
+        throw new RuntimeException(s);
+      }
+    }
     result.close();
 
     if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
@@ -704,11 +702,11 @@ abstract class LinkStoreSql extends GraphStore {
   }
 
   @Override
-  public boolean updateLink(String dbid, Link l, boolean noinverse) throws SQLException {
+  public LinkWriteResult updateLink(String dbid, Link l, boolean noinverse) throws SQLException {
     return newLinkLoop(dbid, l, noinverse, false, "updateLink");
   }
 
-  protected boolean updateLinkImpl(String dbid, Link l, boolean noinverse) throws SQLException {
+  protected LinkWriteResult updateLinkImpl(String dbid, Link l, boolean noinverse) throws SQLException {
     checkDbid(dbid);
 
     if (Level.TRACE.isGreaterOrEqual(debuglevel))
@@ -717,11 +715,11 @@ abstract class LinkStoreSql extends GraphStore {
     // Read and lock the row in Link
     int visibility = getVisibilityForUpdate(l.id1, l.link_type, l.id2, "updateLink");
 
-    if (visibility == -1) {
+    if (visibility == VISIBILITY_NOT_FOUND) {
       // Row doesn't exist
       logger.trace("updateLink row not found");
       conn_ac0.rollback();
-      return false;
+      return LinkWriteResult.LINK_NOT_DONE;
     }
 
     // Update the row in Link
@@ -734,9 +732,13 @@ abstract class LinkStoreSql extends GraphStore {
     pstmt_update_link_upd_link.setLong(7, l.link_type);
 
     int res = pstmt_update_link_upd_link.executeUpdate();
-    if (res != 1) {
-      String s = "updateLink update failed for id1=" + l.id1 +
-                 " id2=" + l.id2 + " link_type=" + l.link_type;
+    if (res == 0) {
+      logger.trace("updateLink row not changed");
+      conn_ac0.rollback();
+      return LinkWriteResult.LINK_NO_CHANGE;
+    } else if (res != 1) {
+      String s = "updateLink update failed with res=" + res +
+                 " for id1=" + l.id1 + " id2=" + l.id2 + " link_type=" + l.link_type;
       logger.error(s);
       conn_ac0.rollback();
       throw new RuntimeException(s);
@@ -758,8 +760,8 @@ abstract class LinkStoreSql extends GraphStore {
 
       int update_res = pstmt_link_inc_count.executeUpdate();
       if (update_res != 1) {
-        String s = "updateLink increment count failed for id1=" +
-		   l.id1 + " link_type=" + l.link_type;
+        String s = "updateLink increment count failed with res=" + res +
+	           " for id1=" + l.id1 + " link_type=" + l.link_type;
         logger.error(s);
         conn_ac0.rollback();
         throw new RuntimeException(s);
@@ -771,7 +773,7 @@ abstract class LinkStoreSql extends GraphStore {
     if (check_count)
       testCount(dbid, linktable, counttable, l.id1, l.link_type);
 
-    return true;
+    return LinkWriteResult.LINK_UPDATE;
   }
 
   @Override
@@ -789,8 +791,10 @@ abstract class LinkStoreSql extends GraphStore {
       } catch (SQLException ex) {
         last_ex = ex;
 
-        if (!processSQLException(ex, "deleteLink"))
+        if (!processSQLException(ex, "deleteLink")) {
+	  conn_ac0.rollback();
           throw ex;
+	}
 
 	retry_delete_link += 1;
       }
@@ -815,7 +819,7 @@ abstract class LinkStoreSql extends GraphStore {
     // we would double-decrement the link count.
     //
     int visibility = getVisibilityForUpdate(id1, link_type, id2, "deleteLink");
-    boolean found = (visibility != -1);
+    boolean found = (visibility != VISIBILITY_NOT_FOUND);
 
     if (!found || (visibility == VISIBILITY_HIDDEN && !expunge)) {
       logger.trace("deleteLinkImpl row not found");
@@ -1106,11 +1110,6 @@ abstract class LinkStoreSql extends GraphStore {
       rs.close();
       return 0;
     }
-  }
-
-  @Override
-  public int bulkLoadBatchSize() {
-    return bulkInsertSize;
   }
 
   @Override

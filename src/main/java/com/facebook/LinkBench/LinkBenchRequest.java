@@ -518,8 +518,8 @@ public class LinkBenchRequest implements Runnable {
 
         starttime = System.nanoTime();
         // no inverses for now
-        boolean alreadyExists = linkStore.addLink(dbid, link, true);
-        boolean added = !alreadyExists;
+        LinkWriteResult wr = linkStore.addLink(dbid, link, true);
+	boolean added = (wr == LinkWriteResult.LINK_INSERT);
         endtime = System.nanoTime();
         if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
           logger.trace("addLink id1=" + link.id1 + " link_type="
@@ -554,8 +554,9 @@ public class LinkBenchRequest implements Runnable {
 
         starttime = System.nanoTime();
         // no inverses for now
-        boolean found1 = linkStore.updateLink(dbid, link, true);
-        boolean found = found1;
+        LinkWriteResult wr = linkStore.updateLink(dbid, link, true);
+        boolean found = (wr == LinkWriteResult.LINK_NO_CHANGE ||
+                         wr == LinkWriteResult.LINK_UPDATE); 
         endtime = System.nanoTime();
         if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
           logger.trace("updateLink id1=" + link.id1 + " link_type="

@@ -36,22 +36,22 @@ public class Logger {
   public void error(String s)              { log(Level.ERROR, s); }
 
   private void logif(Level l, String s, Exception e) {
-    if (level.isGreaterOrEqual(l))
+    if (l.isGreaterOrEqual(level))
       log(l, s + ": " + e.toString());
   }
 
   private void logif(Level l, Exception e) {
-    if (level.isGreaterOrEqual(l))
+    if (l.isGreaterOrEqual(level))
       log(l, e.toString());
   }
 
   private void logif(Level l, StringBuilder s) {
-    if (level.isGreaterOrEqual(l))
+    if (l.isGreaterOrEqual(level))
       log(l, s.toString());
   }
 
   private void logif(Level l, String s) {
-    if (level.isGreaterOrEqual(l))
+    if (l.isGreaterOrEqual(level))
       log(l, s);
   }
 

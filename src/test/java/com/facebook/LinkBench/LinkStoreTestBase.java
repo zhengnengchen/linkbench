@@ -107,7 +107,7 @@ public abstract class LinkStoreTestBase extends TestCase {
     Properties props = new Properties();
     props.setProperty(Config.DBPREFIX, testPrefix);
     props.setProperty(Config.CHECK_COUNT, "true");
-    props.setProperty(Config.DEBUGLEVEL, "DEBUG");
+    props.setProperty(Config.DEBUGLEVEL, "TRACE");
     return props;
   }
 
@@ -213,7 +213,8 @@ public abstract class LinkStoreTestBase extends TestCase {
     long id1 = 1123, id2 = 1124, ltype = 321;
     Link writtenLink = new Link(id1, ltype, id2,
         LinkStore.VISIBILITY_DEFAULT, new byte[] {0x1}, 1, 1994);
-    store.addLink(testDB, writtenLink, true);
+    assertEquals(store.addLink(testDB, writtenLink, true),
+                 LinkWriteResult.LINK_INSERT);
     if (store.isRealLinkStore()) {
       Link readBack = store.getLink(testDB, id1, ltype, id2);
       assertNotNull(readBack);
@@ -225,12 +226,13 @@ public abstract class LinkStoreTestBase extends TestCase {
     }
 
     // Try expunge
-    store.deleteLink(testDB, id1, ltype, id2, true, true);
+    assertTrue(store.deleteLink(testDB, id1, ltype, id2, true, true));
     assertNull(store.getLink(testDB, id1, ltype, id2));
     assertNull(store.getLinkList(testDB, id1, ltype));
     assertEquals(0, store.countLinks(testDB, id1, ltype));
 
-    store.addLink(testDB, writtenLink, true);
+    assertEquals(store.addLink(testDB, writtenLink, true),
+                 LinkWriteResult.LINK_INSERT);
     if (store.isRealLinkStore()) {
       assertNotNull(store.getLink(testDB, id1, ltype, id2));
       assertEquals(1, store.countLinks(testDB, id1, ltype));
