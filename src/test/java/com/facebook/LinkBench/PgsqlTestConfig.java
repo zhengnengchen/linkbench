@@ -52,13 +52,13 @@ public class PgsqlTestConfig {
 
     stmt.executeUpdate(String.format(
 	"CREATE TABLE %s.%s ( " +
-        "  id1 numeric(20) NOT NULL DEFAULT '0', " +
-        "  id2 numeric(20) NOT NULL DEFAULT '0', " +
-        "  link_type numeric(20) NOT NULL DEFAULT '0', " +
+        "  id1 bigint NOT NULL DEFAULT '0', " +
+        "  id2 bigint NOT NULL DEFAULT '0', " +
+        "  link_type bigint NOT NULL DEFAULT '0', " +
         "  visibility smallint NOT NULL DEFAULT '0', " +
         "  data bytea NOT NULL , " +
-        "  time numeric(20) NOT NULL DEFAULT '0', " +
-        "  version bigint NOT NULL DEFAULT '0', " +
+        "  time bigint NOT NULL DEFAULT '0', " +
+        "  version int NOT NULL DEFAULT '0', " +
         "  PRIMARY KEY (link_type, id1,id2))",
         testDB, PgsqlTestConfig.linktable));
 
@@ -69,11 +69,11 @@ public class PgsqlTestConfig {
 
     stmt.executeUpdate(String.format(
         "CREATE TABLE %s.%s ( " +
-        "  id numeric(20) NOT NULL DEFAULT '0', " +
-        "  link_type numeric(20) NOT NULL DEFAULT '0', " +
-        "  count int NOT NULL DEFAULT '0', " +
-        "  time numeric(20) NOT NULL DEFAULT '0', " +
-        "  version numeric(20) NOT NULL DEFAULT '0', " +
+        "  id bigint NOT NULL DEFAULT '0', " +
+        "  link_type bigint NOT NULL DEFAULT '0', " +
+        "  count bigint NOT NULL DEFAULT '0', " +
+        "  time bigint NOT NULL DEFAULT '0', " +
+        "  version bigint NOT NULL DEFAULT '0', " +
         "  PRIMARY KEY (id,link_type))",
         testDB, PgsqlTestConfig.counttable));
 
@@ -81,7 +81,7 @@ public class PgsqlTestConfig {
         "CREATE TABLE %s.%s ( " +
         "  id BIGSERIAL NOT NULL, " +
         "  type int NOT NULL, " +
-        "  version numeric NOT NULL, " +
+        "  version bigint NOT NULL, " +
         "  time int NOT NULL, " +
         "  data bytea NOT NULL, " +
         "  PRIMARY KEY(id))",
