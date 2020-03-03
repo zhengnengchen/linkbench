@@ -145,8 +145,4 @@ public class Config {
   /* External data */
   public static final String DISTRIBUTION_DATA_FILE = "data_file";
   public static final String WORKLOAD_CONFIG_FILE = "workload_file";
-
-  /* Preserves old behavior, even when that might be broken behavior.
-     False by default. Can be set to true in config/X.properties */
-  public static final String NEVER_CHANGE = "never_change";
 }

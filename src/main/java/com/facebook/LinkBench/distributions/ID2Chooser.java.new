@@ -1,4 +1,5 @@
-/* * Copyright 2012, Facebook, Inc.
+/*
+ * Copyright 2012, Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +22,6 @@ import com.facebook.LinkBench.Config;
 import com.facebook.LinkBench.ConfigUtil;
 import com.facebook.LinkBench.InvertibleShuffler;
 import com.facebook.LinkBench.LinkStore;
-import com.facebook.LinkBench.Level;
-import com.facebook.LinkBench.Logger;
 import com.facebook.LinkBench.RealDistribution;
 import com.facebook.LinkBench.RealDistribution.DistributionType;
 import com.facebook.LinkBench.distributions.LinkDistributions.LinkDistribution;
@@ -30,24 +29,6 @@ import com.facebook.LinkBench.distributions.LinkDistributions.LinkDistribution;
 /**
  * Encapsulate logic for choosing id2s for request workload.
  * @author tarmstrong
- *
- * When neverChange=true then original behavior is preserved. Otherwise there have
- * been some changes that tried to fix a few problems. With neverChange=true:
- * 1) updateLink was never called and addLink was called for updates. That prevents
- *    an engine from optimizing for update vs insert.
- * 2) The default Link type gets one more link per Linktable id1 value versus other
- *    Link types. For id1 values with nlinks=1 there were no entries in Linktable
- *    for non-default Link types. This result in P_UPDATE_EXIST and P_ADD_EXIST
- *    not working as expected when chooseForOp was called.
- * 3) The use of range to determine which id2 values might be chosen has a few
- *    problems. First for id1 values with small values for nlinks (=1 is the worst case)
- *    when P_UPDATE_EXIST is used about 50% of the id2 values selected are add not update
- *    because the range from which id2 values are chosen has 2 entries -- choose the
- *    first and get an update, choose the second and get an add. This is fixed by
- *    first generating a random value to determine whether to do an add or update
- *    (which respects P_UPDATE_EXIST) and then choose the id2 value. The second problem
- *    comes from extending the id2 range linearly (>= id1 value). This is fixed by
- *    just using the entire id1 space (1 to maxid1) when picking an id2 value for "add".
  *
  */
 public class ID2Chooser {
@@ -85,9 +66,7 @@ public class ID2Chooser {
   private final int nrequesters;
   private final int requesterID;
 
-  private final boolean neverChange;
-
-  private Logger logger = Logger.getLogger();
+  private final boolean dontLikeChange = false;
 
   public ID2Chooser(Properties props, long startid1, long maxid1,
                     int nrequesters, int requesterID) {
@@ -96,11 +75,8 @@ public class ID2Chooser {
     this.nrequesters = nrequesters;
     this.requesterID = requesterID;
 
-    if (props.containsKey(Config.NEVER_CHANGE))
-      neverChange = ConfigUtil.getBool(props, Config.NEVER_CHANGE);
-    else
-      neverChange = false;
-    logger.warn("ID2Chooser run with neverChange=" + neverChange);
+    if (props.containsKey(Config.DONT_LIKE_CHANGE))
+      dontLikeChange = ConfigUtil.getBool(props, Config.DONT_LIKE_CHANGE);
 
     // random number generator for id2
     randomid2max = ConfigUtil.getLong(props, Config.RANDOM_ID2_MAX, 0L);
@@ -140,37 +116,18 @@ public class ID2Chooser {
    *        existing range
    * @return
    */
-  public long chooseForOp(Random rng, long id1, long linkType, double pExisting) {
-    // logger.trace("chooseForOp id1=" + id1 + " linkType=" + linkType + " exist=" + pExisting);
-
-    if (neverChange)
-      return chooseForOpOld(rng, id1, linkType, pExisting);
-    else
-      return chooseForOpNew(rng, id1, linkType, pExisting);
+  public long chooseForOp(Random rng, long id1, long linkType,
+                                                double pExisting) {
+    System.err.println("chooseForOp1 id1=" + id1 + " linkType=" + linkType + " range=" + range + " nlinks=" + nlinks);
+    return chooseForOpInternal(rng, id1, pExisting);
   }
 
-  private long chooseForOpOld(Random rng, long id1, long linkType, double pExisting) {
-    long nlinks = calcLinkCount(id1, linkType);
-    long range = calcID2Range(pExisting, nlinks);
-    return chooseForOpInternalOld(rng, id1, range);
-  }
 
-  private long chooseForOpNew(Random rng, long id1, long linkType, double pExisting) {
-    long nlinks = calcLinkCount(id1, linkType);
-    return chooseForOpInternalNew(rng, id1, pExisting, nlinks);
-  }
-
-  public long[] chooseMultipleForOp(Random rng, long id1, long linkType, int nid2s, double pExisting) {
-    if (neverChange)
-      return chooseMultipleForOpOld(rng, id1, linkType, nid2s, pExisting);
-    else
-      return chooseMultipleForOpNew(rng, id1, linkType, nid2s, pExisting);
-  }
-
-  private long[] chooseMultipleForOpOld(Random rng, long id1, long linkType, int nid2s, double pExisting) {
+  public long[] chooseMultipleForOp(Random rng, long id1, long linkType,
+      int nid2s, double pExisting) {
     long id2s[] = new long[nid2s];
     long nlinks = calcLinkCount(id1, linkType);
-    long range = calcID2Range(pExisting, nlinks);
+    long range = calcID2Range(pExisting, nlinks, rng);
     if (range <= nid2s && randomid2max == 0) {
       // Range is smaller than required # of ids, fill in all from range
       for (int i = 0; i < nid2s; i++) {
@@ -186,24 +143,13 @@ public class ID2Chooser {
         int iters = 0; // avoid long or infinite loop
         do {
           // Find a unique id2
-          id2 = chooseForOpInternalOld(rng, id1, range);
+          id2 = chooseForOpInternal(rng, id1, pExisting);
           iters++;
         } while (contains(id2s, i, id2) && iters <= MAX_UNIQ_ITERS);
         id2s[i] = id2;
       }
     }
 
-    return id2s;
-  }
-
-  private long[] chooseMultipleForOpNew(Random rng, long id1, long linkType, int nid2s, double pExisting) {
-    // logger.trace("chooseMultipleForOpNew id1=" + id1 + " linkType=" + linkType + " exist=" + pExisting + " nid2s=" + nid2s);
-    long id2s[] = new long[nid2s];
-    long nlinks = calcLinkCount(id1, linkType);
-    for (int i = 0; i < nid2s; i++) {
-      // Don't try go make id2 values unique. This is good enough.
-      id2s[i] = chooseForOpInternalNew(rng, id1, pExisting, nlinks);
-    }
     return id2s;
   }
 
@@ -224,12 +170,23 @@ public class ID2Chooser {
   }
 
 
-  private long calcID2Range(double pExisting, long nlinks) {
-    long range = (long) Math.ceil((1/pExisting) * nlinks);
-    range = Math.max(1, range);// Ensure non-empty range
-    return range;
+  private long calcID2Range(double pExisting, long nlinks, Random rng) {
+    if (dontLikeChange) {
+      long range = (long) Math.ceil((1/pExisting) * nlinks);
+      return Math.max(1, range);// Ensure non-empty range
+    } else {
+      // For the code above when P_UPDATE_EXIST=0.9 and nlinks=1 then range
+      // is rounded up to 2 and half of the time the choice is a new ID
+      // but P_UPDATE_EXIST wants that to be 90% of the time. The approach
+      // here uses one more random value from the rng to avoid that problem.
+      if (rng.nextDouble() <= pExisting) {
+	return Math.max(1, nlinks);
+      } else {
+        long range = (long) Math.ceil((1/pExisting) * nlinks);
+        return Math.max(1, range);// Ensure non-empty range
+      }
+    }
   }
-
 
   /**
    * Internal helper to choose id
@@ -238,7 +195,11 @@ public class ID2Chooser {
    * @param range range size of id2s to select within
    * @return
    */
-  private long chooseForOpInternalOld(Random rng, long id1, long range) {
+  private long chooseForOpInternal(Random rng, long id1, double pExisting) {
+    long range;
+    long nlinks = calcLinkCount(id1, linkType);
+    long range = calcID2Range(pExisting, nlinks, rng);
+
     assert(range >= 1);
     // We want to sometimes add a link that already exists and sometimes
     // add a new link. So generate id2 such that it has roughly pExisting
@@ -251,40 +212,13 @@ public class ID2Chooser {
     } else {
       id2 = rng.nextInt((int)randomid2max);
     }
+    System.out.println("chooseForOp2 id1=" + id1 + " id2=" + id2 + " range=" + range);
     if (id2gen_config == 1) {
       return fixId2(id2, nrequesters, requesterID, randomid2max);
     } else {
       return id2;
     }
   }
-
-  private long chooseForOpInternalNew(Random rng, long id1, double pExisting, long nlinks) {
-    // We want to sometimes add a link that already exists and sometimes
-    // add a new link. So generate id2 such that it has roughly pExisting
-    // chance of already existing.
-    // This happens unless randomid2max is non-zero (in which case just pick a
-    // random id2 upto randomid2max).
-
-    boolean existing = rng.nextDouble() < pExisting;
-    long id2;
-    if (randomid2max == 0) {
-      if (existing)
-        id2 = id1 + rng.nextInt((int) Math.max(1, nlinks));
-      else
-        id2 = rng.nextInt((int)maxid1);
-    } else {
-      id2 = rng.nextInt((int)randomid2max);
-    }
-
-    // logger.trace("chooseForOpInternalNew id1=" + id1 + " id2=" + id2 + " exist=" + pExisting + " nlinks=" + nlinks);
-
-    if (id2gen_config == 1) {
-      return fixId2(id2, nrequesters, requesterID, randomid2max);
-    } else {
-      return id2;
-    }
-  }
-
 
   public boolean sameShuffle;
   /**
@@ -341,15 +275,6 @@ public class ID2Chooser {
     // Divide total links between types so that total is correct
     long totCount = calcTotalLinkCount(id1);
     long minCount = totCount / linkTypeCount;
-
-    // When neverChange is true then the first Link type will have 1 more link
-    // then other Link types. For id1 values with nlinks=1 there will be id1
-    // values with 1 link that uses the default link type and no links for
-    // other link types. The code path for chooseForOp kind-of assumes this
-    // won't happen 
-    if (!neverChange)
-      return minCount+1;
-
     long leftOver = totCount - minCount;
     int typeNum = (int)(linkType -LinkStore.DEFAULT_LINK_TYPE);
     if (typeNum < leftOver) {

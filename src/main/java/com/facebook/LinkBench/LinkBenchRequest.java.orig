@@ -169,9 +169,6 @@ public class LinkBenchRequest implements Runnable {
   private AccessDistribution nodeDeleteDist; // node deletes
 
   private ID2Chooser id2chooser;
-
-  private boolean neverChange = false;
-
   public LinkBenchRequest(LinkStore linkStore,
                           NodeStore nodeStore,
                           Properties props,
@@ -272,9 +269,6 @@ public class LinkBenchRequest implements Runnable {
                         Config.PR_GETLINKLIST_HISTORY, 0.0) / 100;
 
     lastNodeId = startid1;
-
-    if (props.containsKey(Config.NEVER_CHANGE))
-      neverChange = ConfigUtil.getBool(props, Config.NEVER_CHANGE);
   }
 
   private void initRequestProbabilities(Properties props) {
@@ -560,15 +554,7 @@ public class LinkBenchRequest implements Runnable {
 
         starttime = System.nanoTime();
         // no inverses for now
-        LinkWriteResult wr;
-        if (neverChange) {
-          // Preserve old behavior. I don't know why this was done.
-          wr = linkStore.addLink(dbid, link, true);
-        } else {
-          // Call updateLink for updates to let the LinkStore have a fast
-          // path for update and insert.
-          wr = linkStore.updateLink(dbid, link, true);
-        }
+        LinkWriteResult wr = linkStore.updateLink(dbid, link, true);
         boolean found = (wr == LinkWriteResult.LINK_NO_CHANGE ||
                          wr == LinkWriteResult.LINK_UPDATE); 
         endtime = System.nanoTime();
