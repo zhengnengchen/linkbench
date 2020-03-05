@@ -27,6 +27,7 @@ public class Link {
     this.id2 = id2;
     this.visibility = visibility;
     this.data = data;
+    assert data.length <= 255 : "data.length must be <= 255";
     this.version = version;
     this.time = time;
   }

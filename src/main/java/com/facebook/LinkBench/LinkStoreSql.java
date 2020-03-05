@@ -35,47 +35,6 @@ import java.util.Properties;
 
 abstract class LinkStoreSql extends GraphStore {
 
-  class RetryCounter {
-    public RetryCounter(Integer total_ct, Integer max_ct) {
-      n = 0;
-      total_retries = total_ct;
-      max_retries = max_ct;
-    }
-    private Integer total_retries;
-    private Integer max_retries;
-    private int n;
-    public int getN() { return n; }
-
-    public void inc(SQLException ex, String caller, Logger logger) throws SQLException {
-      n += 1;
-
-      if (n < 2)
-	return;
-
-      if ((n-1) > max_retries)
-	max_retries = (n-1);
-
-      if (Level.TRACE.isGreaterOrEqual(debuglevel))
-        logger.trace("Retry " + n + " for " + caller);
-
-      // TODO count calls, max retries?
-
-      assert(n >= 2);
-      // This is initialized to 0, inc() is called on first attempt. When n >= 2 this is a retry.
-      total_retries += 1;
-
-      if (n > 1000) {
-        // TODO make retry configurable
-        logger.error("Too many retries for " + caller);
-        if (ex != null)
-          throw ex;
-        else
-          throw new SQLException("too many retries");
-      }
-
-    }
-  }
-
   /* database server configuration keys */
   public static final String CONFIG_HOST = "host";
   public static final String CONFIG_PORT = "port";
@@ -488,6 +447,13 @@ abstract class LinkStoreSql extends GraphStore {
     }
   }
 
+  private SQLException getSQLException(SQLException ex, String msg) {
+    if (ex != null)
+      return ex;
+    else
+      return new SQLException(msg);
+  }
+
   /**
    * Handle SQL exception by logging error and selecting how to respond
    * @param ex SQLException thrown by PgSQL JDBC driver
@@ -564,14 +530,15 @@ abstract class LinkStoreSql extends GraphStore {
     while (true) {
 
       try {
-
         if (do_insert) {
-          rc_add.inc(last_ex, caller, logger);
+          if (!rc_add.inc(caller, logger))
+            throw getSQLException(last_ex, caller);
           addLinkImpl(dbid, l, noinverse);
 	  return LinkWriteResult.LINK_INSERT;
 
 	} else {
-          rc_upd.inc(last_ex, caller, logger);
+          if (!rc_upd.inc(caller, logger))
+            throw getSQLException(last_ex, caller);
 	  LinkWriteResult wr = updateLinkImpl(dbid, l, noinverse);
 
 	  if (wr == LinkWriteResult.LINK_NO_CHANGE || wr == LinkWriteResult.LINK_UPDATE) {
@@ -757,7 +724,8 @@ abstract class LinkStoreSql extends GraphStore {
 
     while (true) {
       // Enforce limit on retries
-      rc.inc(last_ex, "deleteLink", logger);
+      if (!rc.inc("deleteLink", logger))
+        throw getSQLException(last_ex, "deleteLink");
 
       try {
         return deleteLinkImpl(dbid, id1, link_type, id2, noinverse, expunge);
@@ -855,7 +823,8 @@ abstract class LinkStoreSql extends GraphStore {
 
     while (true) {
       // Enforce limit on retries
-      rc.inc(last_ex, "getLink", logger);
+      if (!rc.inc("getLink", logger))
+        throw getSQLException(last_ex, "getLink");
 
       try {
         return getLinkImpl(dbid, id1, link_type, id2);
@@ -898,7 +867,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "multigetLinks", logger);
+      if (!rc.inc("multigetLinks", logger))
+        throw getSQLException(last_ex, "multigetLinks");
 
       try {
         return multigetLinksImpl(dbid, id1, link_type, id2s);
@@ -971,7 +941,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "getLinkList", logger);
+      if (!rc.inc("getLinkList", logger))
+        throw getSQLException(last_ex, "getLinkList");
 
       try {
         return getLinkListImpl(dbid, id1, link_type, minTimestamp,
@@ -1041,7 +1012,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "countLinks", logger);
+      if (!rc.inc("countLinks", logger))
+        throw getSQLException(last_ex, "countLinks");
 
       try {
         return countLinksImpl(dbid, id1, link_type);
@@ -1083,7 +1055,8 @@ abstract class LinkStoreSql extends GraphStore {
 
     // TODO - count and limit retries
     while (true) {
-      rc.inc(last_ex, "addBulkLinks", logger);
+      if (!rc.inc("addBulkLinks", logger))
+        throw getSQLException(last_ex, "addBulkLinks");
 
       try {
         addBulkLinksImpl(dbid, links, noinverse);
@@ -1149,7 +1122,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "addBulkCounts", logger);
+      if (!rc.inc("addBulkCounts", logger))
+        throw getSQLException(last_ex, "addBulkCounts");
 
       try {
         addBulkCountsImpl(dbid, counts);
@@ -1215,7 +1189,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "addNode", logger);
+      if (!rc.inc("addNode", logger))
+        throw getSQLException(last_ex, "addNode");
 
       try {
         long ids[] = bulkAddNodesImpl(dbid, Collections.singletonList(node));
@@ -1240,7 +1215,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "bulkAddNodes", logger);
+      if (!rc.inc("bulkAddNodes", logger))
+        throw getSQLException(last_ex, "bulkAddNodes");
 
       try {
         return bulkAddNodesImpl(dbid, nodes);
@@ -1311,7 +1287,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "getNode", logger);
+      if (!rc.inc("getNode", logger))
+        throw getSQLException(last_ex, "getNode");
 
       try {
         return getNodeImpl(dbid, type, id);
@@ -1361,7 +1338,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "updateNode", logger);
+      if (!rc.inc("updateNode", logger))
+        throw getSQLException(last_ex, "updateNode");
 
       try {
         return updateNodeImpl(dbid, node);
@@ -1407,7 +1385,8 @@ abstract class LinkStoreSql extends GraphStore {
     SQLException last_ex = null;
 
     while (true) {
-      rc.inc(last_ex, "deleteNode", logger);
+      if (!rc.inc("deleteNode", logger))
+        throw getSQLException(last_ex, "deleteNode");
 
       try {
         return deleteNodeImpl(dbid, type, id);

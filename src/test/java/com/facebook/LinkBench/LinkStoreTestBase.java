@@ -20,6 +20,7 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.text.SimpleDateFormat;
 
 import junit.framework.TestCase;
 
@@ -108,6 +109,11 @@ public abstract class LinkStoreTestBase extends TestCase {
     props.setProperty(Config.CHECK_COUNT, "true");
     props.setProperty(Config.DEBUGLEVEL, "TRACE");
     return props;
+  }
+
+  private void statusOut(String msg) {
+    System.err.println(msg + " at " +
+		         new SimpleDateFormat("HH.mm.ss").format(new Date()));
   }
 
   public static void fillLoadProps(Properties props, long startId, long idCount,
@@ -335,6 +341,54 @@ public abstract class LinkStoreTestBase extends TestCase {
     }
   }
 
+  /** Simple test with multiple operations on single link */
+  @Test
+  public void testMultipleLinks2() throws IOException, Exception {
+    DummyLinkStore store = getStoreHandle(true);
+
+    long id1 = 3123, id2 = 3124, ltype = 321;
+    for (int x=0; x<256; x++) {
+      byte[] data = new byte[x];
+      for (int dx=0; dx < x; dx++)
+        data[dx] = (byte) dx;
+      Link writtenLink = new Link(id1, ltype, id2+x,
+          LinkStore.VISIBILITY_DEFAULT, data, 1, 1994);
+      store.addLink(testDB, writtenLink, true);
+      if (store.isRealLinkStore()) {
+        Link readBack = store.getLink(testDB, id1, ltype, id2+x);
+        assertNotNull(readBack);
+        if (!writtenLink.equals(readBack)) {
+          throw new Exception("Expected " + readBack.toString() + " to equal "
+              + writtenLink.toString());
+	}
+      }
+    }
+    if (store.isRealLinkStore())
+      assertEquals(256, store.countLinks(testDB, id1, ltype));
+
+    // Try expunge
+    store.deleteLink(testDB, id1, ltype, id2, true, true);
+    if (store.isRealLinkStore()) {
+      assertNull(store.getLink(testDB, id1, ltype, id2));
+      assertEquals(255, store.countLinks(testDB, id1, ltype));
+    }
+
+    for (int x=1; x<256; x++) {
+      store.deleteLink(testDB, id1, ltype, id2+x, true, true);
+      if (store.isRealLinkStore())
+        assertNull(store.getLink(testDB, id1, ltype, id2+x));
+    }
+    if (store.isRealLinkStore()) {
+      assertNull(store.getLinkList(testDB, id1, ltype));
+      assertEquals(0, store.countLinks(testDB, id1, ltype));
+    }
+
+    // Confirm count is still 0
+    store.deleteLink(testDB, id1, ltype, id2, true, true);
+    if (store.isRealLinkStore())
+      assertEquals(0, store.countLinks(testDB, id1, ltype));
+  }
+
   /**
    * Simple test to make sure multiget works
    * @throws IOException
@@ -349,6 +403,7 @@ public abstract class LinkStoreTestBase extends TestCase {
                       System.currentTimeMillis());
     Link b = a.clone();
     b.id2 = 43;
+    b.data = new byte[] { 0x7, 0x8 };
     store.addLink(testDB, a, true);
     store.addLink(testDB, b, true);
     // Retrieve the two added links
@@ -512,6 +567,48 @@ public abstract class LinkStoreTestBase extends TestCase {
     testAddThenUpdate(l, updateData);
   }
 
+  /** Test addBulkLinks, addBulkCounts directly */
+  @Test
+  public void testBulk() throws IOException, Exception {
+    DummyLinkStore store = getStoreHandle(true);
+
+    // addBulkLinks not implemented for MemoryLinkStore
+    if (!store.isRealLinkStore())
+      return;
+
+    int nlinks = store.bulkLoadBatchSize();
+    long id1 = 33123, id2 = 33124, ltype = 323;
+    int toff=1111, voff=7777;
+
+    LinkedList<Link> links = new LinkedList<Link>();
+    for (int x=0; x<nlinks; x++) {
+      byte[] data = new byte[] { 0x1, 0x2, 0x3 };
+      data[2] = (byte) x;
+
+      links.add(new Link(id1+x, ltype, id2+x,
+          LinkStore.VISIBILITY_DEFAULT, data, x+voff, x+toff));
+    }
+    store.addBulkLinks(testDB, links, true);
+
+    LinkedList<LinkCount> counts = new LinkedList<LinkCount>();
+    for (int x=0; x<nlinks; x++) {
+      counts.add(new LinkCount(id1+x, ltype, x+toff, x+voff, 1));
+    }
+    store.addBulkCounts(testDB, counts);
+
+    for (int x=0; x<nlinks; x++) {
+      Link readLink = store.getLink(testDB, id1+x, ltype, id2+x);
+      assertNotNull(readLink);
+      if (!links.get(x).equals(readLink)) {
+        throw new Exception("Expected " + readLink.toString() + " to equal "
+            + links.get(x).toString());
+      }
+      assertEquals(1, store.countLinks(testDB, id1+x, ltype));
+      store.deleteLink(testDB, id1+x, ltype, id2+x, true, true);
+      assertNull(store.getLink(testDB, id1+x, ltype, id2+x));
+      assertEquals(0, store.countLinks(testDB, id1, ltype));
+    }
+  }
 
 
   /**
@@ -535,6 +632,7 @@ public abstract class LinkStoreTestBase extends TestCase {
     try {
       Random rng = createRNG();
 
+      statusOut("testLoader: load");
       serialLoad(rng, logger, props, store);
 
       long testEndTime = System.currentTimeMillis();
@@ -551,6 +649,7 @@ public abstract class LinkStoreTestBase extends TestCase {
         // old store was closed by loader
         store.initialize(props, Phase.REQUEST, 0);
         // read back data and sanity check
+        statusOut("testLoader: validate");
         validateLoadedData(logger, store, startId, idCount, linksPerId,
                                                             testEndTime);
       }
@@ -558,8 +657,10 @@ public abstract class LinkStoreTestBase extends TestCase {
       if (!store.initialized) {
         store.initialize(props, Phase.REQUEST, 0);
       }
+      statusOut("testLoader: delete");
       deleteIDRange(testDB, store, startId, idCount);
     }
+    statusOut("testLoader: done");
   }
 
   /**
@@ -579,6 +680,7 @@ public abstract class LinkStoreTestBase extends TestCase {
     int requests = getRequestCount();
     long timeLimit = requests;
 
+
     Properties props = basicProps();
     fillLoadProps(props, startId, idCount, linksPerId);
 
@@ -587,16 +689,19 @@ public abstract class LinkStoreTestBase extends TestCase {
     fillReqProps(props, startId, idCount, requests, timeLimit,
         p_add * 100, p_del * 100, p_upd * 100, p_count * 100, p_multiget * 100,
         p_getlinks * 100, true);
+    initStore(props);
 
     try {
       Random rng = createRNG();
 
+      statusOut("testRequester: load");
       serialLoad(rng, logger, props, getStoreHandle(false));
 
       DummyLinkStore reqStore = getStoreHandle(false);
       LatencyStats latencyStats = new LatencyStats(1);
       RequestProgress tracker = new RequestProgress(logger, requests, timeLimit, 0, 1000);
 
+      statusOut("testRequester: request");
       LinkBenchRequest requester = new LinkBenchRequest(reqStore,
                       null, props, latencyStats, System.out, tracker, rng,
                       0, 1);
@@ -625,9 +730,10 @@ public abstract class LinkStoreTestBase extends TestCase {
       assertEquals(0, reqStore.bulkLoadCountOps);
       assertEquals(0, reqStore.bulkLoadLinkOps);
     } finally {
+      statusOut("testRequester: delete");
       deleteIDRange(testDB, getStoreHandle(true), startId, idCount);
     }
-    System.err.println("Done!");
+    statusOut("testRequester: done");
   }
 
   /**
@@ -709,10 +815,12 @@ public abstract class LinkStoreTestBase extends TestCase {
 
     props.setProperty(Config.PR_GETLINKLIST_HISTORY, Double.toString(
                                                       pHistory * 100));
+    initStore(props);
 
     try {
       Random rng = createRNG();
 
+      statusOut("testHistoryRequests: load");
       serialLoad(rng, logger, props, getStoreHandle(false));
       RequestProgress tracker = new RequestProgress(logger, requests, timeLimit, 0, 1000);
 
@@ -722,6 +830,7 @@ public abstract class LinkStoreTestBase extends TestCase {
       LinkBenchRequest requester = new LinkBenchRequest(reqStore, null,
                       props, latencyStats, System.out, tracker, rng, 0, 1);
 
+      statusOut("testHistoryRequests: requests");
       tracker.startTimer();
       requester.run();
       latencyStats.displayLatencyStats();
@@ -740,8 +849,10 @@ public abstract class LinkStoreTestBase extends TestCase {
         assertTrue(actualPHistory >= 0.75 * pHistory);
       }
     } finally {
+      statusOut("testHistoryRequests: delete");
       deleteIDRange(testDB, getStoreHandle(true), startId, idCount);
     }
+    statusOut("testHistoryRequests: done");
   }
 
   private void checkExpectedList(DummyLinkStore store,

@@ -62,7 +62,7 @@ On a large benchmark run, this graph might have a billion nodes, and occupy over
 on disk.  The generated graph is designed to have similar properties to the Facebook
 social graph.  For example, the number of links out from each node follows a power-law
 distribution, where most nodes have at most a few links, but a few nodes have many
-more links.
+more links. The load phase uses one thread for Node and N threads (configurable) for Link and Count.
 
 The second is the *request phase*, where the actual benchmarking occurs.  In
 the request phase, the benchmark driver spawns many request threads, which make
@@ -377,13 +377,11 @@ to obtain better results:
   but aren't comparable to benchmarks where
   the database is much larger than RAM.  Typically for MySQL benchmarks our databases
   are 10-15x larger than the buffer pool.
-* Databases should be benchmarked in comparable configurations.  We
-  always run LinkBench with durable writes (i.e. so that
-  after an operation returns, the data is written to persistent storage and can be
-  recovered in the event of a system crash).
-  Similarly, our LinkBench MySQL implementation provides serializable consistency of
-  operations.  Weaker durability or consistency properties should be
-  disclosed alongside benchmark results.
+* Databases should be benchmarked in comparable configurations.
+* Nobody has yet to confirm the minimum isolation required for correctness. Read committed is
+  used for MyRocks while repeatable read is used for InnoDB.
+* Try to use a covering secondary index for Link. That will make a frequent range
+  query faster and more efficient -- less IO, less CPU will be needed.
 
 Understanding Performance Profile Under Varying Load
 ----------------------------------------------------
@@ -617,3 +615,172 @@ so on.
     GET_LINKS_LIST count = 12678653  p25 = [0.7,0.8]ms  p50 = [1,2]ms
                    p75 = [1,2]ms  p95 = [10,11]ms  p99 = [15,16]ms
                    max = 2064.476ms  mean = 2.427ms
+
+Running a Benchmark with MongoDB
+===================================
+
+Use MongoDB 3.7.0+
+
+There are two implementations -- *classic* and *new*. Classic will be unchanged for now as it is used for performance
+regression testing. New will get updated to improve performance. LinkStoreMongoDb.java is classic while
+LinkStoreMongoDb2.java is new. The version to run can be selected in LinkConfigMongoDb.properties via the
+*linkstore* and *nodestore* options.
+
+We need to create a new database and collections on the MongoDB server.
+We'll create a new database called `linkdb` and
+the needed collections to store graph nodes, links and link counts. MongoDB collections are the analog of SQL tables. 
+MongoDB can create collections implicitly, when inserting a document or creating an index for the first time,
+but the explicit collection creation commands are included here for clarity.
+
+    use linkdb
+    db.createCollection("linktable");
+    db.createCollection("nodetable");
+    db.createCollection("counttable");
+
+MongoDB is a document store, so we use indexes that are roughly analogous to the indexes you would 
+create on a set of SQL tables. The indexes that are used for the standard MongoDB 
+benchmark can be created with the Mongo shell.
+
+These are the commands for classic - LinkStoreMongoDb.java:
+
+    use linkdb
+    db.linktable.createIndex({id1: 1, link_type: 1, id2: 1}, {unique: true});
+    db.linktable.createIndex({id1: 1, link_type: 1, time: 1, visibility: 1});
+    db.counttable.createIndex({id: 1, link_type: 1}, {unique: true});
+    db.nodetable.createIndex({id: 1}, {unique: true});
+     
+These are the commands for new - LinkStoreMongoDb2.java. The unique indexes aren't needed as that is
+provided by \_id. The secondary index on linktable has more columns to be covering. The time and
+visiblity columns have been reordered to support the predicates for the getLinksList operation.
+
+    use linkdb
+    db.linktable.createIndex({id1: 1, link_type: 1, visibility: 1, time: 1, id2: 1, version: 1, data: 1});
+
+Here are examples of Node, Link, and Count documents, as they will appear in the database:
+    
+*Node*
+
+    {
+      "_id": NumberLong("1"),
+      "type": 2048,
+      "version": NumberLong("1"),
+      "time": 1515083223,
+      "data": BinData(0, "2z3PdFHS22dmRJ28Q29WkW9CSEGuRUO/ipY=")
+    }
+    
+*Link*
+
+    {
+      "_id": {
+        "id1": NumberLong("98305"),
+        "link_type": NumberLong("123456789"),
+        "id2": NumberLong("98305")
+      },
+      "id1": NumberLong("98305"),
+      "link_type": NumberLong("123456789"),
+      "id2": NumberLong("98305"),
+      "visibility": "1",
+      "version": 0,
+      "time": NumberLong("1514652638750"),
+      "data": BinData(0, "NDhENzdiXA==")
+    }
+    
+*Count*
+    
+    {
+      "_id": {
+        "id": NumberLong("98305"),
+        "link_type": NumberLong("123456789")
+      },
+      "id": NumberLong("98305"),
+      "link_type": NumberLong("123456789"),
+      "version": NumberLong("0"),
+      "time": NumberLong("1514652638750"),
+      "count": NumberLong("1")
+    }
+
+Connecting to the MongoDB Server
+-------------------
+Connection information is provided through the _url_ property *or* the _host_, _port_ (_user_ / _password_) properties. 
+_url_ takes precedence.
+
+
+#### URL Connection Property
+
+If the _url_ property is set then this value is used to connect to the mongodb. See the
+[connection string reference](https://docs.mongodb.com/manual/reference/connection-string/) for the list of supported
+features.
+
+#### Host / Port Connection Properties
+
+If the _url_ property is not set, then connection information must be provided through host / port properties:
+
+* _host_: __required__ the mongodb server address / name
+* _port_: __optional__ defaults to 27017
+
+
+#### Authentication
+
+The MongoDB [authentication tutorial](https://docs.mongodb.com/manual/tutorial/enable-authentication/) covers user 
+account creation, but for the benchmarking instructions below, we assume authentication is disabled, so user 
+credentials aren’t needed to connect to the database (and both properties are omitted).
+
+When using a connection string (via the _url_ property), the security details are  supplied as part of the URI (See 
+[Driver authentication](http://mongodb.github.io/mongo-java-driver/3.6/driver/tutorials/authentication/) for further 
+details.)
+
+When using a host / port configuration, the _user_ and _password_ properties provide the credentials. 
+
+* if authentication is not required: both _user_ and  _password_ must be omitted. 
+* if authentication is required: both _user_ and  _password_ must be provided. 
+
+Host / port configuration use the default authentication mechanism on the __'admin'__ database (SCRAM-SHA-1 in java 
+driver 3.6 at the time of writing). If other forms are required please use the __url__ property (see 
+[Driver authentication](http://mongodb.github.io/mongo-java-driver/3.6/driver/tutorials/authentication/) for further 
+details).
+
+For other forms of authentication, please use the __url__ property. See 
+[Driver authentication](http://mongodb.github.io/mongo-java-driver/3.6/driver/tutorials/authentication/) for further 
+details.
+
+Loading Data
+------------
+First we need to do an initial load of data using our config file:
+
+    ./bin/linkbench -c config/LinkConfigMongoDb.properties -l
+
+This will take a while to load, and you should get frequent progress updates.
+Once loading is finished you should see a notification like:
+
+    LOAD PHASE COMPLETED.  Loaded 100000 nodes (Expected 100000). Loaded 4547655 links (45.48 links per node).  Took 186.0 seconds.  Links/second = 24444
+
+At the end LinkBench reports a range of statistics on load time that are
+of limited interest at this stage.
+    
+
+Request Phase
+-------------
+Now you can do some benchmarking. Run the request phase using the below command:
+
+    ./bin/linkbench -c config/LinkConfigMongoDb.properties -r
+
+LinkBench will log progress to the console, along with statistics.
+Once all requests have been sent, or the time limit has elapsed, LinkBench
+will notify you of completion:
+
+    REQUEST PHASE COMPLETED. 2824617 requests done in 360 seconds. Requests/second = 7840
+
+You can also inspect the latency statistics. For example, the following line tells us the mean latency
+for link range scan operations, along with latency ranges for median (p50), 99th percentile (p99) and
+so on.
+
+    GET_LINKS_LIST count = 637296  p25 = [0.1,0.2]ms  p50 = [0.1,0.2]ms  
+        p75 = [0.2,0.3]ms  p95 = [0.3,0.4]ms  p99 = [0.5,0.6]ms  
+        max = 77.247ms  mean = 0.241ms
+        
+Running Tests
+-------------
+
+You can use the following to run some / all of the tests:
+
+    $> mvn test -P mongodb-tests
