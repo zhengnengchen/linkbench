@@ -138,7 +138,7 @@ public abstract class NodeStoreTestBase extends TestCase {
   @Test
   public void testBulk() throws IOException, Exception {
     NodeStore store = getNodeStoreHandle(true);
-    store.resetNodeStore(testDB, 0);
+    store.resetNodeStore(testDB, 1);
 
     int nlimit = store.bulkLoadBatchSize();
     LinkedList<Node> nodes = new LinkedList<Node>();

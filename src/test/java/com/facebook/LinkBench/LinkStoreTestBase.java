@@ -684,10 +684,10 @@ public abstract class LinkStoreTestBase extends TestCase {
     Properties props = basicProps();
     fillLoadProps(props, startId, idCount, linksPerId);
 
-    double p_add = 0.2, p_del = 0.2, p_up = 0.1, p_count = 0.1,
+    double p_add = 0.2, p_del = 0.2, p_upd = 0.1, p_count = 0.1,
            p_multiget = 0.2, p_getlinks = 0.2;
     fillReqProps(props, startId, idCount, requests, timeLimit,
-        p_add * 100, p_del * 100, p_up * 100, p_count * 100, p_multiget * 100,
+        p_add * 100, p_del * 100, p_upd * 100, p_count * 100, p_multiget * 100,
         p_getlinks * 100, true);
     initStore(props);
 

@@ -23,6 +23,46 @@ import java.util.Properties;
  * @author tarmstrong
  */
 public abstract class GraphStore extends LinkStore implements NodeStore {
+
+  class RetryCounter {
+    public RetryCounter(Integer total_ct, Integer max_ct) {
+      n = 0;
+      total_retries = total_ct;
+      max_retries = max_ct;
+    }
+    private Integer total_retries;
+    private Integer max_retries;
+    private int n;
+    public int getN() { return n; }
+
+    public boolean inc(String caller, Logger logger) {
+      n += 1;
+
+      if (n < 2)
+	return true;
+
+      if ((n-1) > max_retries)
+	max_retries = (n-1);
+
+      if (Level.TRACE.isGreaterOrEqual(debuglevel))
+        logger.trace("Retry " + n + " for " + caller);
+
+      // TODO count calls, max retries?
+
+      assert(n >= 2);
+      // This is initialized to 0, inc() is called on first attempt. When n >= 2 this is a retry.
+      total_retries += 1;
+
+      if (n < 1000) {
+	return true;
+      } else {
+        // TODO make retry configurable
+        logger.error("Too many retries for " + caller);
+	return false;
+      }
+    }
+  }
+
   protected boolean check_count = false;
   protected Level debuglevel;
   protected Logger logger;
@@ -102,7 +142,7 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
   }
 
   public void printMetrics() {
-    logger.info("SQL Link total retry: " +
+    logger.info("Graph Link total retry: " +
                 retry_add_link + " add, " +
                 retry_update_link + " update, " +
                 retry_delete_link + " delete, " +
@@ -112,7 +152,7 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
                 retry_count_links + " count, " +
                 retry_add_bulk_links + " add_bulk_links, " +
                 retry_add_bulk_counts + " add_bulk_counts");
-    logger.info("SQL Link max retry: " +
+    logger.info("Graph Link max retry: " +
                 max_add_link + " add, " +
                 max_update_link + " update, " +
                 max_delete_link + " delete, " +
@@ -122,16 +162,16 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
                 max_count_links + " count, " +
                 max_add_bulk_links + " add_bulk_links, " +
                 max_add_bulk_counts + " add_bulk_counts");
-    logger.info("SQL Link other: " +
+    logger.info("Graph Link other: " +
                 retry_add_to_upd + " add_to_upd, " +
                 retry_upd_to_add + " upd_to_add");
-    logger.info("SQL Node total retry: " +
+    logger.info("Graph Node total retry: " +
                 retry_add_node + " add, " +
                 retry_bulk_add_nodes + " add_bulk, " +
                 retry_get_node + " get, " +
                 retry_update_node + " update, " +
                 retry_delete_node + " delete");
-    logger.info("SQL Node max retry: " +
+    logger.info("Graph Node max retry: " +
                 max_add_node + " add, " +
                 max_bulk_add_nodes + " add_bulk, " +
                 max_get_node + " get, " +

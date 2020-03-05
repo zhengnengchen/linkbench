@@ -54,8 +54,6 @@ import java.nio.ByteBuffer;
 import org.bson.*;
 import org.bson.Document;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
 import org.bson.conversions.Bson;
 import org.bson.types.Binary;
 
@@ -73,20 +71,15 @@ public class LinkStoreMongoDb2 extends GraphStore {
     static final String CONFIG_PORT = "port";
     static final String CONFIG_USER = "user";
     static final String CONFIG_PASSWORD = "password";
-    static final String CHECK_COUNT = "check_count";
     static final String MAX_RETRIES = "max_retries";
-    static final String BULKINSERT_SIZE = "bulkinsert_size";
     static final String FLE_ENABLE = "fle_enable";
 
     // only valid for profiling the tests
     static final String SKIP_TRANSACTIONS = "skip_transactions";
 
-    static final int DEFAULT_BULKINSERT_SIZE = 1024;
-    static final boolean DEFAULT_CHECK_COUNT = false;
     static final boolean DEFAULT_SKIP_TRANSACTIONS = false;
     static final int DEFAULT_MAX_RETRIES = 16;
 
-    private boolean check_count = DEFAULT_CHECK_COUNT;
     private boolean skip_transactions = DEFAULT_SKIP_TRANSACTIONS;
 
     private static final long NODE_GEN_UNINITIALIZED = -1L;
@@ -113,9 +106,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
     // in MongoDB documents.
     private static AtomicLong nodeIdGen =  new AtomicLong(NODE_GEN_UNINITIALIZED);
 
-    private int bulkInsertSize = DEFAULT_BULKINSERT_SIZE;
-
-    private final Logger logger = Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER);
+    private final Logger logger = Logger.getLogger();
     private boolean debug = false; // true if debug log level is enabled
 
     LinkStoreMongoDb2() {
@@ -181,15 +172,10 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
         }
 
-        if (props.containsKey(CHECK_COUNT)) {
-            check_count = ConfigUtil.getBool(props, CHECK_COUNT);
-        }
-
         if (props.containsKey(SKIP_TRANSACTIONS)) {
             skip_transactions = ConfigUtil.getBool(props, SKIP_TRANSACTIONS);
         }
 
-        bulkInsertSize = ConfigUtil.getInt(props, BULKINSERT_SIZE, DEFAULT_BULKINSERT_SIZE);
         max_retries = ConfigUtil.getInt(props, MAX_RETRIES, DEFAULT_MAX_RETRIES);
 
         Level debuglevel = ConfigUtil.getDebugLevel(props);
@@ -327,7 +313,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
     }
 
     @Override
-    public boolean addLink(final String dbid, final Link link, final boolean noinverse) {
+    public LinkWriteResult addLink(final String dbid, final Link link, final boolean noinverse) {
         logger.debug("addLink " + link.id1 +
             "." + link.id2 +
             "." + link.link_type);
@@ -339,9 +325,9 @@ public class LinkStoreMongoDb2 extends GraphStore {
         // Add link to the store.
         //    Update the the count table if visibility changes.
         //    Update link time, version, etc. in the case of a pre-existing link.
-        CommandBlock<Boolean> block = new CommandBlock<Boolean>() {
+        CommandBlock<LinkWriteResult> block = new CommandBlock<LinkWriteResult>() {
             @Override
-            public Boolean call() {
+            public LinkWriteResult call() {
                 final BsonBinary linkId = linkBsonId(link);
                 final Bson idEq = eq("_id", linkId);
 
@@ -383,7 +369,21 @@ public class LinkStoreMongoDb2 extends GraphStore {
                 if (check_count) {
                     testCount(dbid, linktable, counttable, link.id1, link.link_type);
                 }
-                return preexisting != null;
+		if (preexisting == null) {
+                  return LinkWriteResult.LINK_INSERT;
+                } else {
+                  // Ignore LINK_NO_CHANGE and LINK_NOT_DONE for now.
+		  // 
+		  // LINK_NO_CHANGE isn't required by Linkbench. It is possible to recognize updates that
+                  // don't change the doc but without calling update directly that requires more CPU on
+                  // the client. If the code above used updateOne then that returns matchedCount and
+                  // modifiedCount and matched=1, modified=0 implies LINK_NO_CHANGE. Otherwise detection
+                  // requires comparing the value of the possibly updated fields in "preexisting" with
+		  // the fields in "link"
+		  //
+		  // LINK_NOT_DONE would only occur if this only tried to do update, not upsert.
+                  return LinkWriteResult.LINK_UPDATE;
+		}
             }
 
             @Override
@@ -393,8 +393,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         };
         block = makeTransactional(block);
         block = makeRetryable(block);
-        Boolean result = executeCommandBlock(block);
-        return result;
+        return executeCommandBlock(block);
     }
 
     @Override
@@ -529,10 +528,9 @@ public class LinkStoreMongoDb2 extends GraphStore {
         }
     }
 
-    // not called anywhere, addLink is called directly in LinkBenchRequest
     @Override
-    public boolean updateLink(final String dbid, final Link a, final boolean noinverse) {
-        return !addLink(dbid, a, noinverse);
+    public LinkWriteResult updateLink(final String dbid, final Link a, final boolean noinverse) {
+        return addLink(dbid, a, noinverse);
     }
 
     @Override
@@ -628,11 +626,6 @@ public class LinkStoreMongoDb2 extends GraphStore {
             linkArr = links.toArray(new Link[links.size()]);
         }
         return linkArr;
-    }
-
-    @Override
-    public int bulkLoadBatchSize() {
-        return bulkInsertSize;
     }
 
     @Override

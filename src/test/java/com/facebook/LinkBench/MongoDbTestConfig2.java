@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import static com.facebook.LinkBench.Config.*;
+import static com.facebook.LinkBench.GraphStore.*;
 import static com.facebook.LinkBench.LinkStoreMongoDb2.*;
 import static com.mongodb.client.model.Updates.combine;
 
@@ -73,9 +74,6 @@ public class MongoDbTestConfig2 {
         props.setProperty(CONFIG_PASSWORD, pass);
         props.setProperty(CONFIG_URL, url);
         props.setProperty(CHECK_COUNT, Boolean.toString(getBooleanOrDefault(CHECK_COUNT, true)));
-        props.setProperty(SKIP_TRANSACTIONS, Boolean.toString(getBooleanOrDefault(SKIP_TRANSACTIONS, DEFAULT_SKIP_TRANSACTIONS)));
-        props.setProperty(MAX_RETRIES, Integer.toString(getIntegerOrDefault(MAX_RETRIES, DEFAULT_MAX_RETRIES)));
-        props.setProperty(BULKINSERT_SIZE, Integer.toString(getIntegerOrDefault(BULKINSERT_SIZE, DEFAULT_BULKINSERT_SIZE)));
 
         props.setProperty(REQUEST_RANDOM_SEED, "12020569");
         props.setProperty(LOAD_RANDOM_SEED, "26854520010");
