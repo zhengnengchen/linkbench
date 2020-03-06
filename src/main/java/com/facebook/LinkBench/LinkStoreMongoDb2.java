@@ -228,7 +228,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         // url="mongodb://localhost:27017/?readPreference=primary&replicaSet=replset"
         MongoClientOptions.Builder options = MongoClientOptions.builder();
 
-	assert use_encryption == false : "not supported";
+        assert use_encryption == false : "not supported";
 
         // Open connection to the server.
         if (url != null) {
@@ -369,21 +369,21 @@ public class LinkStoreMongoDb2 extends GraphStore {
                 if (check_count) {
                     testCount(dbid, linktable, counttable, link.id1, link.link_type);
                 }
-		if (preexisting == null) {
+                if (preexisting == null) {
                   return LinkWriteResult.LINK_INSERT;
                 } else {
                   // Ignore LINK_NO_CHANGE and LINK_NOT_DONE for now.
-		  // 
-		  // LINK_NO_CHANGE isn't required by Linkbench. It is possible to recognize updates that
+                  // 
+                  // LINK_NO_CHANGE isn't required by Linkbench. It is possible to recognize updates that
                   // don't change the doc but without calling update directly that requires more CPU on
                   // the client. If the code above used updateOne then that returns matchedCount and
                   // modifiedCount and matched=1, modified=0 implies LINK_NO_CHANGE. Otherwise detection
                   // requires comparing the value of the possibly updated fields in "preexisting" with
-		  // the fields in "link"
-		  //
-		  // LINK_NOT_DONE would only occur if this only tried to do update, not upsert.
+                  // the fields in "link"
+                  //
+                  // LINK_NOT_DONE would only occur if this only tried to do update, not upsert.
                   return LinkWriteResult.LINK_UPDATE;
-		}
+                }
             }
 
             @Override
