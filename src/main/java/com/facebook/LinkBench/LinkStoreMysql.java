@@ -65,7 +65,7 @@ public class LinkStoreMysql extends LinkStoreSql {
     String sql = "SELECT id1, id2, link_type," +
                  " visibility, data, version, time" +
                  " FROM " + init_dbid + "." + linktable +
-		 " FORCE INDEX(id1_type) " +
+                 " FORCE INDEX(id1_type) " +
                  " WHERE id1 = ? AND link_type = ? " +
                  " AND time >= ?" +
                  " AND time <= ?" +
@@ -91,7 +91,7 @@ public class LinkStoreMysql extends LinkStoreSql {
            "&allowMultiQueries=true" +
            "&useLocalSessionState=true" +
            "&useAffectedRows=true" +
-	   "&useServerPrepStmts=true";
+           "&useServerPrepStmts=true";
   }
 
   /**
@@ -119,7 +119,7 @@ public class LinkStoreMysql extends LinkStoreSql {
     stmt_ac1.execute(String.format("TRUNCATE TABLE %s.%s;", dbid, nodetable));
    
     stmt_ac1.execute(String.format("ALTER TABLE `%s`.`%s` " +
-	             "AUTO_INCREMENT = %d;", dbid, nodetable, startID));
+                                   "AUTO_INCREMENT = %d;", dbid, nodetable, startID));
   }
 
   String getDefaultPort() { return "3306"; }

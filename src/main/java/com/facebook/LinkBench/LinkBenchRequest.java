@@ -525,7 +525,7 @@ public class LinkBenchRequest implements Runnable {
         starttime = System.nanoTime();
         // no inverses for now
         LinkWriteResult wr = linkStore.addLink(dbid, link, true);
-	boolean added = (wr == LinkWriteResult.LINK_INSERT);
+        boolean added = (wr == LinkWriteResult.LINK_INSERT);
         endtime = System.nanoTime();
         if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
           logger.trace("addLink id1=" + link.id1 + " link_type="

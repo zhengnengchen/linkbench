@@ -51,7 +51,7 @@ public class PgsqlTestConfig {
     stmt.executeUpdate("CREATE SCHEMA " + testDB);
 
     stmt.executeUpdate(String.format(
-	"CREATE TABLE %s.%s ( " +
+        "CREATE TABLE %s.%s ( " +
         "  id1 bigint NOT NULL DEFAULT '0', " +
         "  id2 bigint NOT NULL DEFAULT '0', " +
         "  link_type bigint NOT NULL DEFAULT '0', " +

@@ -113,7 +113,7 @@ public abstract class LinkStoreTestBase extends TestCase {
 
   private void statusOut(String msg) {
     System.err.println(msg + " at " +
-		         new SimpleDateFormat("HH.mm.ss").format(new Date()));
+                       new SimpleDateFormat("HH.mm.ss").format(new Date()));
   }
 
   public static void fillLoadProps(Properties props, long startId, long idCount,
@@ -360,7 +360,7 @@ public abstract class LinkStoreTestBase extends TestCase {
         if (!writtenLink.equals(readBack)) {
           throw new Exception("Expected " + readBack.toString() + " to equal "
               + writtenLink.toString());
-	}
+        }
       }
     }
     if (store.isRealLinkStore())

@@ -210,11 +210,11 @@ abstract class LinkStoreSql extends GraphStore {
 
   protected PreparedStatement makeUpdateLinkPS() throws SQLException {
     String sql = "UPDATE " + init_dbid + "." + linktable +
-	         " SET visibility = ?," +
-		 "     data = ?," +
-		 "     version = ?," +
-		 "     time = ?" +
-		 " WHERE id1 = ? AND id2 = ? AND link_type = ?";
+                 " SET visibility = ?," +
+                 "     data = ?," +
+                 "     version = ?," +
+                 "     time = ?" +
+                 " WHERE id1 = ? AND id2 = ? AND link_type = ?";
     logger.debug("updateLink PS: " + sql);
     return conn_ac0.prepareStatement(sql);
   }
@@ -517,7 +517,7 @@ abstract class LinkStoreSql extends GraphStore {
   }
 
   protected LinkWriteResult newLinkLoop(String dbid, Link l, boolean noinverse,
-		                        boolean insert_first, String caller) throws SQLException {
+                                        boolean insert_first, String caller) throws SQLException {
     boolean do_insert = insert_first;
     SQLException last_ex = null;
     RetryCounter rc_add = new RetryCounter(retry_add_link, max_add_link);
@@ -534,43 +534,43 @@ abstract class LinkStoreSql extends GraphStore {
           if (!rc_add.inc(caller, logger))
             throw getSQLException(last_ex, caller);
           addLinkImpl(dbid, l, noinverse);
-	  return LinkWriteResult.LINK_INSERT;
+          return LinkWriteResult.LINK_INSERT;
 
-	} else {
+        } else {
           if (!rc_upd.inc(caller, logger))
             throw getSQLException(last_ex, caller);
-	  LinkWriteResult wr = updateLinkImpl(dbid, l, noinverse);
+          LinkWriteResult wr = updateLinkImpl(dbid, l, noinverse);
 
-	  if (wr == LinkWriteResult.LINK_NO_CHANGE || wr == LinkWriteResult.LINK_UPDATE) {
+          if (wr == LinkWriteResult.LINK_NO_CHANGE || wr == LinkWriteResult.LINK_UPDATE) {
             return wr;
-	  } else if (wr == LinkWriteResult.LINK_NOT_DONE) {
-	    // Row does not exist, switch to insert
+          } else if (wr == LinkWriteResult.LINK_NOT_DONE) {
+            // Row does not exist, switch to insert
             do_insert = true;
-	    retry_upd_to_add.incrementAndGet();
-	    logger.debug("newLinkLoop upd_to_add for id1=" + l.id1 + " id2=" + l.id2 +
-	                 " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
-	  } else {
-	    String s = "newLinkLoop bad result for update(" + wr + ") with id1=" + l.id1 +
-	               " id2=" + l.id2 + " link_type=" + l.link_type;
-	    logger.error(s);
-	    throw new RuntimeException(s);
-	  }
-	}
+            retry_upd_to_add.incrementAndGet();
+            logger.debug("newLinkLoop upd_to_add for id1=" + l.id1 + " id2=" + l.id2 +
+                         " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
+          } else {
+            String s = "newLinkLoop bad result for update(" + wr + ") with id1=" + l.id1 +
+                       " id2=" + l.id2 + " link_type=" + l.link_type;
+            logger.error(s);
+            throw new RuntimeException(s);
+          }
+        }
 
       } catch (SQLException ex) {
         last_ex = ex;
         conn_ac0.rollback();
 
-	if (isDupKeyError(ex)) {
-	  // Row exists, switch to update
-	  do_insert = false;
+        if (isDupKeyError(ex)) {
+          // Row exists, switch to update
+          do_insert = false;
           retry_add_to_upd.incrementAndGet();
-	  logger.debug("newLinkLoop add_to_upd for id1=" + l.id1 + " id2=" + l.id2 +
-	               " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
-	} else if (!processSQLException(ex, caller)) {
+          logger.debug("newLinkLoop add_to_upd for id1=" + l.id1 + " id2=" + l.id2 +
+                       " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
+        } else if (!processSQLException(ex, caller)) {
           throw ex;
-	}
-	// At this point the insert or update can be retried
+        }
+        // At this point the insert or update can be retried
       }
     }
   }
@@ -701,7 +701,7 @@ abstract class LinkStoreSql extends GraphStore {
       int update_res = pstmt_link_inc_count.executeUpdate();
       if (update_res != 1) {
         String s = "updateLink increment count failed with res=" + res +
-	           " for id1=" + l.id1 + " link_type=" + l.link_type;
+                   " for id1=" + l.id1 + " link_type=" + l.link_type;
         logger.error(s);
         conn_ac0.rollback();
         throw new RuntimeException(s);
@@ -735,8 +735,8 @@ abstract class LinkStoreSql extends GraphStore {
 
         if (!processSQLException(ex, "deleteLink")) {
           throw ex;
-	}
-	// At this point the insert or update can be retried
+        }
+        // At this point the insert or update can be retried
       }
     }
   }
@@ -842,7 +842,7 @@ abstract class LinkStoreSql extends GraphStore {
 
     if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
       logger.trace("getLink for id1=" + id1 + ", link_type=" + link_type +
-		   ", id2=" + id2);
+                   ", id2=" + id2);
     }
 
     pstmt_get_link.setLong(1, id1);
@@ -958,13 +958,13 @@ abstract class LinkStoreSql extends GraphStore {
 
   protected Link[] getLinkListImpl(String dbid, long id1, long link_type,
                                    long minTimestamp, long maxTimestamp,
-	  			   int offset, int limit) throws SQLException {
+                                   int offset, int limit) throws SQLException {
     checkDbid(dbid);
 
     if (Level.TRACE.isGreaterOrEqual(debuglevel)) {
       logger.trace("getLinkList for id1=" + id1 + ", link_type=" + link_type +
-		   " minTS=" + minTimestamp + ", maxTS=" + maxTimestamp +
-		   " offset=" + offset + ", limit=" + limit);
+                   " minTS=" + minTimestamp + ", maxTS=" + maxTimestamp +
+                   " offset=" + offset + ", limit=" + limit);
     }
 
     pstmt_get_link_list.setLong(1, id1);
@@ -1194,12 +1194,12 @@ abstract class LinkStoreSql extends GraphStore {
 
       try {
         long ids[] = bulkAddNodesImpl(dbid, Collections.singletonList(node));
-	if (ids.length != 1) {
+        if (ids.length != 1) {
           String s = "addNode for " + node.id + " expected 1 returned " + ids.length;
           logger.error(s);
           throw new RuntimeException(s);
         }
-	return ids[0];
+        return ids[0];
       } catch (SQLException ex) {
         last_ex = ex;
 

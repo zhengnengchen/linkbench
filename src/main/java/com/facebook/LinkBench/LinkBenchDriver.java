@@ -289,12 +289,12 @@ public class LinkBenchDriver {
           " %d counts (%.2f /node)." +
           " %.1f seconds, %d Links/s, %d (link+count)/s, %d (link+count+node)/s",
           actualNodes, expectedNodes,
-	  actualLinks, actualLinks / (double) actualNodes,
-	  actualCounts, actualCounts / (double) actualNodes,
-	  loadTime_s,
-	  (long) Math.round(actualLinks / loadTime_s),
-	  (long) Math.round((actualLinks+actualCounts) / loadTime_s),
-	  (long) Math.round((actualLinks+actualCounts+actualNodes) / loadTime_s)));
+          actualLinks, actualLinks / (double) actualNodes,
+          actualCounts, actualCounts / (double) actualNodes,
+          loadTime_s,
+          (long) Math.round(actualLinks / loadTime_s),
+          (long) Math.round((actualLinks+actualCounts) / loadTime_s),
+          (long) Math.round((actualLinks+actualCounts+actualNodes) / loadTime_s)));
     }
   }
 

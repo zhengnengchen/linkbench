@@ -231,9 +231,9 @@ public class MemoryLinkStore extends GraphStore {
       /*System.err.println(String.format("added link (%d, %d, %d), %d in list",
                 a.id1, a.link_type, a.id2, links.size()));*/
       if (exists)
-	return LinkWriteResult.LINK_UPDATE;
+        return LinkWriteResult.LINK_UPDATE;
       else
-	return LinkWriteResult.LINK_INSERT;
+        return LinkWriteResult.LINK_INSERT;
     }
   }
 

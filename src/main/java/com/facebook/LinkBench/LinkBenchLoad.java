@@ -393,7 +393,7 @@ public class LinkBenchLoad implements Runnable {
     if (bulkLoad) {
       for (LinkCount count: linkTypeCounts.values()) {
         countLoadBuffer.add(count);
-	nAdded[1] += 1;
+        nAdded[1] += 1;
         if (countLoadBuffer.size() >= bulkLoadBatchSize) {
           loadCounts(countLoadBuffer);
         }
@@ -489,7 +489,7 @@ public class LinkBenchLoad implements Runnable {
 
         logger.error("Error in loadLink: " + e.getMessage());
         if (!neverChange)
-	  System.exit(1);
+          System.exit(1);
 
         stats.addStats(LinkBenchOp.LOAD_LINK, timetaken2, true);
         store.clearErrors(loaderID);
@@ -521,7 +521,7 @@ public class LinkBenchLoad implements Runnable {
 
         logger.error("Error in loadLinks: " + e.getMessage());
         if (!neverChange)
-	  System.exit(1);
+          System.exit(1);
 
         stats.addStats(LinkBenchOp.LOAD_LINKS_BULK, timetaken2, true);
         store.clearErrors(loaderID);
@@ -554,7 +554,7 @@ public class LinkBenchLoad implements Runnable {
 
         logger.error("Error in loadCounts: " + e.getMessage());
         if (!neverChange)
-	  System.exit(1);
+          System.exit(1);
 
         stats.addStats(LinkBenchOp.LOAD_COUNTS_BULK, timetaken2, true);
         store.clearErrors(loaderID);
@@ -673,13 +673,13 @@ public class LinkBenchLoad implements Runnable {
         double count_rate = ((curr_counts) / ((double) now - starttime_ms))*1000;
         double id1_rate = ((curr_id1s) / ((double) now - starttime_ms))*1000;
 
-	if (neverChange) {
+        if (neverChange) {
           progressLogger.info(String.format(
               "%d/%d id1s loaded (%.1f%% complete) at %.2f id1s/sec avg. " +
               "%d links loaded at %.2f links/sec avg.",
               curr_id1s, id1s_total, percentage, id1_rate,
               curr_links, link_rate));
-	} else {
+        } else {
           progressLogger.info(String.format(
               "%d/%d id1s (%.1f%%) at %.1f /sec. " +
               "%d links at %.1f /sec. " +
@@ -689,7 +689,7 @@ public class LinkBenchLoad implements Runnable {
               curr_links, link_rate,
               curr_counts, count_rate,
               link_rate + count_rate));
-	}
+        }
       }
     }
   }

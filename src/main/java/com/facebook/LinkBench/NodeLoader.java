@@ -147,10 +147,10 @@ public class NodeLoader implements Runnable {
 
       for (long id = startId; id < maxId; id++) {
         nodeBytes += genNode(rng, id, nodeLoadBuffer);
-	
-	if (nodeLoadBuffer.size() >= bulkLoadBatchSize ||
-	    ((bulkLoadBatchKB > 0) && ((nodeBytes / 1024) >= bulkLoadBatchKB))) {
-	  nodeBytes = 0;
+
+      if (nodeLoadBuffer.size() >= bulkLoadBatchSize ||
+         ((bulkLoadBatchKB > 0) && ((nodeBytes / 1024) >= bulkLoadBatchKB))) {
+          nodeBytes = 0;
           loadNodes(nodeLoadBuffer);
           nodeLoadBuffer.clear();
         }

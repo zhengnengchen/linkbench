@@ -155,7 +155,7 @@ public abstract class NodeStoreTestBase extends TestCase {
       Node n2 = store.getNode(testDB, nodes.get(x).type, nodes.get(x).id);
       assertNotNull(n2);
       assertTrue(nodes.get(x).toString() + " != " + n2.toString() + " at " + x,
-		 nodes.get(x).equals(n2));
+      nodes.get(x).equals(n2));
     }
   }
 
