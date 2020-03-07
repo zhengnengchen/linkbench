@@ -267,6 +267,7 @@ public class LinkBenchDriver {
       }
     }
 
+    GraphStore.printMetrics(logger);
     latencyStats.displayLatencyStats();
 
     if (csvStatsFile != null) {
@@ -406,6 +407,7 @@ public class LinkBenchDriver {
       }
     }
 
+    GraphStore.printMetrics(logger);
     latencyStats.displayLatencyStats();
 
     if (csvStatsFile != null) {
@@ -464,7 +466,6 @@ public class LinkBenchDriver {
   void drive() throws IOException, InterruptedException, Throwable {
     load();
     sendrequests();
-    GraphStore.printMetrics(logger);
   }
 
   public static void main(String[] args)
