@@ -898,8 +898,6 @@ public class LinkBenchRequest implements Runnable {
       }
     }
 
-    GraphStore.printMetrics(logger);
-
     // Do final update of statistics
     progressTracker.update(requestsSinceLastUpdate);
     displayStats(lastStatDisplay_ms, System.currentTimeMillis());

@@ -464,6 +464,7 @@ public class LinkBenchDriver {
   void drive() throws IOException, InterruptedException, Throwable {
     load();
     sendrequests();
+    GraphStore.printMetrics(logger);
   }
 
   public static void main(String[] args)
