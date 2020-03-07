@@ -465,6 +465,8 @@ abstract class LinkStoreSql extends GraphStore {
     msg += "Message was: '" + ex.getMessage() + "'.  ";
     msg += "SQLState was: " + ex.getSQLState() + ".  ";
 
+    GraphStore.incError(ex.getErrorCode());
+
     logger.error("SQLException from " + op + ": " + ex);
 
     if (retry) {

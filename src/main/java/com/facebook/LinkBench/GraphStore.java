@@ -15,7 +15,9 @@
  */
 package com.facebook.LinkBench;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -76,6 +78,16 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
   // Max size of Nodes in a bulk load insert. Not used to limit Link or Count
   // because they are smaller. When 0 there is no limit.
   protected int bulkInsertKB = 0;
+
+  // Counts errors by error code
+  private static HashMap<Integer, Integer> error_counts = new HashMap<Integer, Integer>();
+
+  protected static void incError(int error_code) {
+    synchronized(error_counts) {
+      int count = error_counts.getOrDefault(error_code, 0) + 1;
+      error_counts.put(error_code, count);
+    }
+  }
 
   protected static AtomicInteger retry_add_link = new AtomicInteger(0);
   protected static AtomicInteger retry_update_link = new AtomicInteger(0);
@@ -177,5 +189,11 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
                 max_get_node.get() + " get, " +
                 max_update_node.get() + " update, " +
                 max_delete_node.get() + " delete");
+
+    if (!error_counts.isEmpty()) {
+      logger.info("Error counts");
+      for (Map.Entry<Integer, Integer> entry : error_counts.entrySet())
+        logger.info("error(" + entry.getKey() + ") " + entry.getValue() + " times");
+    }
   }
 }
