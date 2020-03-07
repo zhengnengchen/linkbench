@@ -546,7 +546,7 @@ abstract class LinkStoreSql extends GraphStore {
 	  } else if (wr == LinkWriteResult.LINK_NOT_DONE) {
 	    // Row does not exist, switch to insert
             do_insert = true;
-	    retry_upd_to_add += 1;
+	    retry_upd_to_add.incrementAndGet();
 	    logger.debug("newLinkLoop upd_to_add for id1=" + l.id1 + " id2=" + l.id2 +
 	                 " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
 	  } else {
@@ -564,7 +564,7 @@ abstract class LinkStoreSql extends GraphStore {
 	if (isDupKeyError(ex)) {
 	  // Row exists, switch to update
 	  do_insert = false;
-          retry_add_to_upd += 1;
+          retry_add_to_upd.incrementAndGet();
 	  logger.debug("newLinkLoop add_to_upd for id1=" + l.id1 + " id2=" + l.id2 +
 	               " link_type=" + l.link_type + " gap " + (l.id2 - l.id1));
 	} else if (!processSQLException(ex, caller)) {

@@ -197,11 +197,6 @@ public class MemoryLinkStore extends GraphStore {
     return new MemoryLinkStore(linkdbs, nodedbs);
   }
 
-  public void printMetrics() {
-    // Nothing to print today
-  }
-
-
   @Override
   public void initialize(Properties p, Phase currentPhase, int threadId) {
     super.initialize(p, currentPhase, threadId);

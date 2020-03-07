@@ -17,21 +17,22 @@ package com.facebook.LinkBench;
 
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * An abstract class for storing both nodes and edges
- * @author tarmstrong
+import java.util.concurrent.atomic.AtomicInteger * @author tarmstrong
  */
 public abstract class GraphStore extends LinkStore implements NodeStore {
 
   class RetryCounter {
-    public RetryCounter(Integer total_ct, Integer max_ct) {
+    public RetryCounter(AtomicInteger total_ct, AtomicInteger max_ct) {
       n = 0;
       total_retries = total_ct;
       max_retries = max_ct;
     }
-    private Integer total_retries;
-    private Integer max_retries;
+    private AtomicInteger total_retries;
+    private AtomicInteger max_retries;
     private int n;
     public int getN() { return n; }
 
@@ -39,26 +40,25 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
       n += 1;
 
       if (n < 2)
-	return true;
+        return true;
 
-      if ((n-1) > max_retries)
-	max_retries = (n-1);
+      // This has a race between get and set. That is not a big problem.
+      if ((n-1) > max_retries.get())
+        max_retries.set(n-1);
 
       if (Level.TRACE.isGreaterOrEqual(debuglevel))
         logger.trace("Retry " + n + " for " + caller);
 
-      // TODO count calls, max retries?
-
       assert(n >= 2);
       // This is initialized to 0, inc() is called on first attempt. When n >= 2 this is a retry.
-      total_retries += 1;
+      total_retries.incrementAndGet();
 
       if (n < 1000) {
-	return true;
+        return true;
       } else {
         // TODO make retry configurable
         logger.error("Too many retries for " + caller);
-	return false;
+        return false;
       }
     }
   }
@@ -77,38 +77,38 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
   // because they are smaller. When 0 there is no limit.
   protected int bulkInsertKB = 0;
 
-  protected Integer retry_add_link = 0;
-  protected Integer retry_update_link = 0;
-  protected Integer retry_delete_link = 0;
-  protected Integer retry_get_link = 0;
-  protected Integer retry_multigetlinks = 0;
-  protected Integer retry_get_link_list = 0;
-  protected Integer retry_count_links = 0;
-  protected Integer retry_add_bulk_links = 0;
-  protected Integer retry_add_bulk_counts = 0;
-  protected Integer retry_add_node = 0;
-  protected Integer retry_bulk_add_nodes = 0;
-  protected Integer retry_get_node = 0;
-  protected Integer retry_update_node = 0;
-  protected Integer retry_delete_node = 0;
+  protected static AtomicInteger retry_add_link = new AtomicInteger(0);
+  protected static AtomicInteger retry_update_link = new AtomicInteger(0);
+  protected static AtomicInteger retry_delete_link = new AtomicInteger(0);
+  protected static AtomicInteger retry_get_link = new AtomicInteger(0);
+  protected static AtomicInteger retry_multigetlinks = new AtomicInteger(0);
+  protected static AtomicInteger retry_get_link_list = new AtomicInteger(0);
+  protected static AtomicInteger retry_count_links = new AtomicInteger(0);
+  protected static AtomicInteger retry_add_bulk_links = new AtomicInteger(0);
+  protected static AtomicInteger retry_add_bulk_counts = new AtomicInteger(0);
+  protected static AtomicInteger retry_add_node = new AtomicInteger(0);
+  protected static AtomicInteger retry_bulk_add_nodes = new AtomicInteger(0);
+  protected static AtomicInteger retry_get_node = new AtomicInteger(0);
+  protected static AtomicInteger retry_update_node = new AtomicInteger(0);
+  protected static AtomicInteger retry_delete_node = new AtomicInteger(0);
 
-  protected Integer max_add_link = 0;
-  protected Integer max_update_link = 0;
-  protected Integer max_delete_link = 0;
-  protected Integer max_get_link = 0;
-  protected Integer max_multigetlinks = 0;
-  protected Integer max_get_link_list = 0;
-  protected Integer max_count_links = 0;
-  protected Integer max_add_bulk_links = 0;
-  protected Integer max_add_bulk_counts = 0;
-  protected Integer max_add_node = 0;
-  protected Integer max_bulk_add_nodes = 0;
-  protected Integer max_get_node = 0;
-  protected Integer max_update_node = 0;
-  protected Integer max_delete_node = 0;
+  protected static AtomicInteger max_add_link = new AtomicInteger(0);
+  protected static AtomicInteger max_update_link = new AtomicInteger(0);
+  protected static AtomicInteger max_delete_link = new AtomicInteger(0);
+  protected static AtomicInteger max_get_link = new AtomicInteger(0);
+  protected static AtomicInteger max_multigetlinks = new AtomicInteger(0);
+  protected static AtomicInteger max_get_link_list = new AtomicInteger(0);
+  protected static AtomicInteger max_count_links = new AtomicInteger(0);
+  protected static AtomicInteger max_add_bulk_links = new AtomicInteger(0);
+  protected static AtomicInteger max_add_bulk_counts = new AtomicInteger(0);
+  protected static AtomicInteger max_add_node = new AtomicInteger(0);
+  protected static AtomicInteger max_bulk_add_nodes = new AtomicInteger(0);
+  protected static AtomicInteger max_get_node = new AtomicInteger(0);
+  protected static AtomicInteger max_update_node = new AtomicInteger(0);
+  protected static AtomicInteger max_delete_node = new AtomicInteger(0);
 
-  protected int retry_add_to_upd = 0;
-  protected int retry_upd_to_add = 0;
+  protected static AtomicInteger retry_add_to_upd = new AtomicInteger(0);
+  protected static AtomicInteger retry_upd_to_add = new AtomicInteger(0);
 
   public GraphStore() {
     logger = Logger.getLogger();
@@ -141,41 +141,41 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
     return ids;
   }
 
-  public void printMetrics() {
+  public static void printMetrics(Logger logger) {
     logger.info("Graph Link total retry: " +
-                retry_add_link + " add, " +
-                retry_update_link + " update, " +
-                retry_delete_link + " delete, " +
-                retry_get_link + " get, " +
-                retry_multigetlinks + " multiget, " +
-                retry_get_link_list + " get_link_list, " +
-                retry_count_links + " count, " +
-                retry_add_bulk_links + " add_bulk_links, " +
-                retry_add_bulk_counts + " add_bulk_counts");
+                retry_add_link.get() + " add, " +
+                retry_update_link.get() + " update, " +
+                retry_delete_link.get() + " delete, " +
+                retry_get_link.get() + " get, " +
+                retry_multigetlinks.get() + " multiget, " +
+                retry_get_link_list.get() + " get_link_list, " +
+                retry_count_links.get() + " count, " +
+                retry_add_bulk_links.get() + " add_bulk_links, " +
+                retry_add_bulk_counts.get() + " add_bulk_counts");
     logger.info("Graph Link max retry: " +
-                max_add_link + " add, " +
-                max_update_link + " update, " +
-                max_delete_link + " delete, " +
-                max_get_link + " get, " +
-                max_multigetlinks + " multiget, " +
-                max_get_link_list + " get_link_list, " +
-                max_count_links + " count, " +
-                max_add_bulk_links + " add_bulk_links, " +
+                max_add_link.get() + " add, " +
+                max_update_link.get() + " update, " +
+                max_delete_link.get() + " delete, " +
+                max_get_link.get() + " get, " +
+                max_multigetlinks.get() + " multiget, " +
+                max_get_link_list.get() + " get_link_list, " +
+                max_count_links.get() + " count, " +
+                max_add_bulk_links.get() + " add_bulk_links, " +
                 max_add_bulk_counts + " add_bulk_counts");
     logger.info("Graph Link other: " +
-                retry_add_to_upd + " add_to_upd, " +
-                retry_upd_to_add + " upd_to_add");
+                retry_add_to_upd.get() + " add_to_upd, " +
+                retry_upd_to_add.get() + " upd_to_add");
     logger.info("Graph Node total retry: " +
-                retry_add_node + " add, " +
-                retry_bulk_add_nodes + " add_bulk, " +
-                retry_get_node + " get, " +
-                retry_update_node + " update, " +
-                retry_delete_node + " delete");
+                retry_add_node.get() + " add, " +
+                retry_bulk_add_nodes.get() + " add_bulk, " +
+                retry_get_node.get() + " get, " +
+                retry_update_node.get() + " update, " +
+                retry_delete_node.get() + " delete");
     logger.info("Graph Node max retry: " +
-                max_add_node + " add, " +
-                max_bulk_add_nodes + " add_bulk, " +
-                max_get_node + " get, " +
-                max_update_node + " update, " +
-                max_delete_node + " delete");
+                max_add_node.get() + " add, " +
+                max_bulk_add_nodes.get() + " add_bulk, " +
+                max_get_node.get() + " get, " +
+                max_update_node.get() + " update, " +
+                max_delete_node.get() + " delete");
   }
 }

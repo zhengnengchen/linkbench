@@ -86,11 +86,6 @@ public class DummyLinkStore extends GraphStore {
   public long bulkLoadCountOps;
   public long bulkLoadCountRows;
 
-  public void printMetrics() {
-    if (wrappedStore != null)
-      wrappedStore.printMetrics();
-  }
-
   @Override
   public void initialize(Properties p, Phase currentPhase, int threadId) {
     if (initialized) {

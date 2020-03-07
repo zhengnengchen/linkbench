@@ -898,9 +898,7 @@ public class LinkBenchRequest implements Runnable {
       }
     }
 
-    linkStore.printMetrics();
-    if (nodeStore != null && nodeStore != linkStore)
-      nodeStore.printMetrics();
+    GraphStore.printMetrics(logger);
 
     // Do final update of statistics
     progressTracker.update(requestsSinceLastUpdate);

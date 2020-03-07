@@ -54,9 +54,6 @@ public abstract class LinkStore {
   /** initialize the store object */
   public abstract void initialize(Properties p, Phase currentPhase, int threadId);
 
-  /** Print internal metrics to the logger */
-  public abstract void printMetrics();
-
   /**
    * Do any cleanup.  After this is called, store won't be reused
    */
