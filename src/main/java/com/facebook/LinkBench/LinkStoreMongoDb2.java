@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoClient;
@@ -314,13 +315,28 @@ public class LinkStoreMongoDb2 extends GraphStore {
 
     @Override
     public LinkWriteResult addLink(final String dbid, final Link link, final boolean noinverse) {
-        logger.debug("addLink " + link.id1 +
-            "." + link.id2 +
-            "." + link.link_type);
+        logger.debug("addLink " + link.id1 + "." + link.id2 + "." + link.link_type);
+        return newLink(dbid, link, noinverse, retry_add_link, max_add_link, "addLink", true);
+    }
+
+    @Override
+    public LinkWriteResult updateLink(final String dbid, final Link link, final boolean noinverse) {
+        logger.debug("updateLink " + link.id1 + "." + link.id2 + "." + link.link_type);
+        return newLink(dbid, link, noinverse, retry_update_link, max_update_link, "updateLink", false);
+    }
+
+    private LinkWriteResult newLink(final String dbid, final Link link, final boolean noinverse,
+                                    AtomicInteger retry_counter, AtomicInteger max_counter,
+                                    final String caller, boolean addLink) {
         MongoDatabase database = mongoClient.getDatabase(dbid);
         final MongoCollection<Document> linkCollection = database.getCollection(linktable);
         final MongoCollection<Document> countCollection = database.getCollection(counttable);
 
+        // This could be split into two functions. One that is a fast-path for insert and the
+        // other for update. But the performance for the current approach looks good enough
+        // and splitting these would be much more complex because some inserts will really
+        // need to do an update and vice versa. See newLinkLoop in LinkStoreSQL to understand
+        // the complexity.
 
         // Add link to the store.
         //    Update the the count table if visibility changes.
@@ -392,8 +408,19 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
         };
         block = makeTransactional(block);
-        block = makeRetryable(block);
-        return executeCommandBlock(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_counter, max_counter});
+        LinkWriteResult res = executeCommandBlock(block);
+
+        // Count the cases where addLink does an update and updateLink does an insert
+        if (!addLink) {
+            if (res == LinkWriteResult.LINK_INSERT)
+                retry_upd_to_add.incrementAndGet();
+        } else {
+            if (res != LinkWriteResult.LINK_INSERT)
+                retry_add_to_upd.incrementAndGet();
+        }
+
+        return res;
     }
 
     @Override
@@ -467,7 +494,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
         };
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_delete_link, max_delete_link});
         return executeCommandBlock(block);
     }
 
@@ -526,11 +553,6 @@ public class LinkStoreMongoDb2 extends GraphStore {
             throw new CommandBlockException("Data inconsistency between " + assoctable + "(" + count + ") " +
                     " and " + counttable + "(" + total + ")");
         }
-    }
-
-    @Override
-    public LinkWriteResult updateLink(final String dbid, final Link a, final boolean noinverse) {
-        return addLink(dbid, a, noinverse);
     }
 
     @Override
@@ -617,7 +639,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
         };
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_get_link_list, max_get_link_list});
         List<Link> links = executeCommandBlock(block);
 
         // Return array of links or null.
@@ -671,7 +693,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
         };
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_add_bulk_links, max_add_bulk_links});
         BulkWriteResult res = executeCommandBlock(block);
         int nAdded = 0;
         if(res != null)
@@ -727,7 +749,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
             }
         };
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_add_bulk_counts, max_add_bulk_counts});
         executeCommandBlock(block);
     }
 
@@ -846,7 +868,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         };
 
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_bulk_add_nodes, max_bulk_add_nodes});
         executeCommandBlock(block);
 
         return assignedNodeIds;
@@ -913,7 +935,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         };
 
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_update_node, max_update_node});
         UpdateResult res = executeCommandBlock(block);
 
         // Node not found.
@@ -949,7 +971,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         };
 
         block = makeTransactional(block);
-        block = makeRetryable(block);
+        block = makeRetryable(block, new AtomicInteger[]{retry_delete_node, max_delete_node});
         DeleteResult res = executeCommandBlock(block);
 
         // Return true if the node was deleted, else return false.
@@ -1032,10 +1054,12 @@ public class LinkStoreMongoDb2 extends GraphStore {
                     }
                     return result;
                 } catch (MongoCommandException e) {
+                    logger.warn("Commit failed for " + task.getName() + ": " + e.getMessage());
+                    commit_failed.incrementAndGet();
                     try {
                         session.abortTransaction();
                     } catch (IllegalStateException ise) {
-                        logger.debug("abortTransaction failed with '" +ise.getMessage() + "', rethrowing original exception '" + e.getMessage() +"'");
+                        logger.warn("abortTransaction failed with '" + ise.getMessage() + "', rethrowing original exception '" + e.getMessage() +"'");
                     }
                     throw e;
                 }
@@ -1055,27 +1079,35 @@ public class LinkStoreMongoDb2 extends GraphStore {
      * If there is a retryable exception and and MAX_RETRIES is exceeded, reraise exception.
      *
      * @param task the task to execute.
+     * @param counters global counters for per operation retries
      * @param <T> the return value type.
      * @return the return value from task.call()
      * @see #populateMongoRetryCodes for a list of retryable error codes
      */
-    private <T> CommandBlock<T> makeRetryable(final CommandBlock<T> task) throws MongoCommandException, CommandBlockException {
+    private <T> CommandBlock<T> makeRetryable(final CommandBlock<T> task, final AtomicInteger[] counters)
+        throws MongoCommandException, CommandBlockException {
+
         return new CommandBlock<T>() {
             @Override
             public T call() throws MongoCommandException, CommandBlockException {
-                // TODO: count errors by error code
-                int retries = max_retries;
+                int retries = 0;
                 while (true) {
-                    retries --;
                     try {
                         return task.call();
                     } catch (MongoCommandException e) {
+                        retries++;
+                        GraphStore.incError(e.getCode());
+
                         // If we failed due to a non-retryable error or max retries exceeded, rethrow the exception.
-                        if (retries <= 0  || !isRetryableError(e.getCode())) {
-                            logger.error(task.getName() + " failed after " + (max_retries - retries - 1) + " retries.", e);
+                        if (retries >= max_retries || !isRetryableError(e.getCode())) {
+                            logger.error(task.getName() + " failed after " + max_retries + " retries.", e);
                             throw e;
                         }
-                        logger.debug(task.getName() + "("+ retries + ") retrying " + e.getMessage());
+                        logger.warn(task.getName() + "("+ retries + ") retrying " + e.getMessage());
+                        counters[0].incrementAndGet();
+                        // This has a race between get and set. It isn't worth preventing that race.
+                        if (retries > counters[1].get())
+                            counters[1].set(retries);
                     }
                 }
             }
