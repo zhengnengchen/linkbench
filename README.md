@@ -507,40 +507,40 @@ PostgreSQL Setup
 
 This assumes that initdb -D has already been done
 
-  DROP SCHEMA IF EXISTS linkdb0 CASCADE; 
-  CREATE SCHEMA linkdb0;
+    DROP SCHEMA IF EXISTS linkdb0 CASCADE; 
+    CREATE SCHEMA linkdb0;
 
-  CREATE TABLE linkdb0.linktable (
-    id1 bigint NOT NULL DEFAULT '0',
-    id2 bigint NOT NULL DEFAULT '0',
-    link_type bigint NOT NULL DEFAULT '0',
-    visibility smallint NOT NULL DEFAULT '0',
-    data bytea NOT NULL,
-    time bigint NOT NULL DEFAULT '0',
-    version int NOT NULL DEFAULT '0',
-    PRIMARY KEY (link_type, id1,id2)
-  );
+    CREATE TABLE linkdb0.linktable (
+      id1 bigint NOT NULL DEFAULT '0',
+      id2 bigint NOT NULL DEFAULT '0',
+      link_type bigint NOT NULL DEFAULT '0',
+      visibility smallint NOT NULL DEFAULT '0',
+      data bytea NOT NULL,
+      time bigint NOT NULL DEFAULT '0',
+      version int NOT NULL DEFAULT '0',
+      PRIMARY KEY (link_type, id1,id2)
+    );
 
-  CREATE TABLE linkdb0.counttable (
-    id bigint NOT NULL DEFAULT '0',
-    link_type bigint NOT NULL DEFAULT '0',
-    count bigint NOT NULL DEFAULT '0',
-    time bigint NOT NULL DEFAULT '0',
-    version bigint NOT NULL DEFAULT '0',
-    PRIMARY KEY (id,link_type)
-  );
+    CREATE TABLE linkdb0.counttable (
+      id bigint NOT NULL DEFAULT '0',
+      link_type bigint NOT NULL DEFAULT '0',
+      count bigint NOT NULL DEFAULT '0',
+      time bigint NOT NULL DEFAULT '0',
+      version bigint NOT NULL DEFAULT '0',
+      PRIMARY KEY (id,link_type)
+    );
 
-  CREATE TABLE linkdb0.nodetable (
-    id BIGSERIAL NOT NULL,
-    type int NOT NULL,
-    version bigint NOT NULL,
-    time int NOT NULL,
-    data bytea NOT NULL,
-    PRIMARY KEY(id)
-  );
+    CREATE TABLE linkdb0.nodetable (
+      id BIGSERIAL NOT NULL,
+      type int NOT NULL,
+      version bigint NOT NULL,
+      time int NOT NULL,
+      data bytea NOT NULL,
+      PRIMARY KEY(id)
+    );
 
-  -- A covering index is good for Linkbench performance
-  CREATE INDEX id1_type on linkdb0.linktable(id1,link_type,visibility,time,id2,version,data);
+    -- A covering index is good for Linkbench performance
+    CREATE INDEX id1_type on linkdb0.linktable(id1,link_type,visibility,time,id2,version,data);
 
 Loading Data
 ------------
