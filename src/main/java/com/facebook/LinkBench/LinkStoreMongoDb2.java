@@ -1079,7 +1079,8 @@ public class LinkStoreMongoDb2 extends GraphStore {
      * If there is a retryable exception and and MAX_RETRIES is exceeded, reraise exception.
      *
      * @param task the task to execute.
-     * @param counters global counters for per operation retries
+     * @param counters global counters for per operation retries. counters[0] is total retries and
+     *                 counters[1] is max retries per call.
      * @param <T> the return value type.
      * @return the return value from task.call()
      * @see #populateMongoRetryCodes for a list of retryable error codes
@@ -1090,6 +1091,8 @@ public class LinkStoreMongoDb2 extends GraphStore {
         return new CommandBlock<T>() {
             @Override
             public T call() throws MongoCommandException, CommandBlockException {
+                final int TOTAL_RETRIES = 0;
+                final int MAX_RETRIES_PER_CALL = 1;
                 int retries = 0;
                 while (true) {
                     try {
@@ -1104,10 +1107,10 @@ public class LinkStoreMongoDb2 extends GraphStore {
                             throw e;
                         }
                         logger.warn(task.getName() + "("+ retries + ") retrying " + e.getMessage());
-                        counters[0].incrementAndGet();
+                        counters[TOTAL_RETRIES].incrementAndGet();
                         // This has a race between get and set. It isn't worth preventing that race.
-                        if (retries > counters[1].get())
-                            counters[1].set(retries);
+                        if (retries > counters[MAX_RETRIES_PER_CALL].get())
+                            counters[MAX_RETRIES_PER_CALL].set(retries);
                     }
                 }
             }
