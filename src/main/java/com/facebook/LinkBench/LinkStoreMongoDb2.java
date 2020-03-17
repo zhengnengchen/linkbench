@@ -1102,8 +1102,12 @@ public class LinkStoreMongoDb2 extends GraphStore {
                         GraphStore.incError(e.getCode());
 
                         // If we failed due to a non-retryable error or max retries exceeded, rethrow the exception.
-                        if (retries >= max_retries || !isRetryableError(e.getCode())) {
-                            logger.error(task.getName() + " failed after " + max_retries + " retries.", e);
+                        if (retries >= max_retries) {
+                            logger.error(task.getName() + " failed after " + retries + " retries.", e);
+                            throw e;
+                        }
+                        if (!isRetryableError(e.getCode())) {
+                            logger.error(task.getName() + " failed from non-retryable code (" + e.getCode() + ").", e);
                             throw e;
                         }
 
