@@ -1106,7 +1106,15 @@ public class LinkStoreMongoDb2 extends GraphStore {
                             logger.error(task.getName() + " failed after " + max_retries + " retries.", e);
                             throw e;
                         }
-                        logger.warn(task.getName() + "("+ retries + ") retrying " + e.getMessage());
+
+                        // Simple backoff before retry because there might be contention
+                        long sleepMillis = 20 * retries;
+                        logger.warn(task.getName() + ": sleep " + sleepMillis + "ms and retry " + retries + ": " + e.getMessage());
+                        try {
+                            Thread.sleep(sleepMillis);
+                        } catch (java.lang.InterruptedException ie) {
+                        }
+
                         counters[TOTAL_RETRIES].incrementAndGet();
                         // This has a race between get and set. It isn't worth preventing that race.
                         if (retries > counters[MAX_RETRIES_PER_CALL].get())

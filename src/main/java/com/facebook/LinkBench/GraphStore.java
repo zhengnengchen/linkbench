@@ -48,8 +48,13 @@ public abstract class GraphStore extends LinkStore implements NodeStore {
       if ((n-1) > max_retries.get())
         max_retries.set(n-1);
 
-      if (Level.TRACE.isGreaterOrEqual(debuglevel))
-        logger.trace("Retry " + n + " for " + caller);
+      // Simple backoff because there might be contention
+      long sleepMillis = 20 * (n-1);
+      logger.warn(caller + ": sleep " + sleepMillis + "ms and retry " + n);
+      try {
+        Thread.sleep(sleepMillis);
+      } catch (java.lang.InterruptedException e) {
+      }
 
       assert(n >= 2);
       // This is initialized to 0, inc() is called on first attempt. When n >= 2 this is a retry.
