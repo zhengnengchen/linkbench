@@ -20,6 +20,7 @@ import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoCredential;
+import com.mongodb.MongoException;
 import com.mongodb.ServerAddress;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.AggregateIterable;
@@ -289,8 +290,6 @@ public class LinkStoreMongoDb2 extends GraphStore {
      *  Populate retryMongoCodes.
      *  These error codes are defined in MongoDB source code:
      *  https://github.com/mongodb/mongo/blob/master/src/mongo/base/error_codes.err
-     *
-     *  TODO: SERVER-35141: 'Update the linkbench driver implementation to use TransientTransactionError label'
      */
     private static HashSet<Integer> populateMongoRetryCodes() {
         HashSet<Integer> states = new HashSet<>();
@@ -303,6 +302,7 @@ public class LinkStoreMongoDb2 extends GraphStore {
         states.add(226);    // AtomicityFailure
         states.add(239);    // SnapshotTooOld. TODO check if this is retryable
         states.add(246);    // SnapshotUnavailable. TODO check if this is retryable
+        states.add(251);    // NoSuchTransaction: long-running transaction can be aborted by mongod
         return states;
     }
 
@@ -1106,7 +1106,10 @@ public class LinkStoreMongoDb2 extends GraphStore {
                             logger.error(task.getName() + " failed after " + retries + " retries.", e);
                             throw e;
                         }
-                        if (!isRetryableError(e.getCode())) {
+
+                        if (e.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
+                            logger.error(task.getName() + " TransientTransactionError for (" + e.getCode() + ")");
+                        } else if (!isRetryableError(e.getCode())) {
                             logger.error(task.getName() + " failed from non-retryable code (" + e.getCode() + ").", e);
                             throw e;
                         }
