@@ -86,12 +86,24 @@ public class LinkStoreMysql extends LinkStoreSql {
   }
 
   protected String getJdbcOptions() {
+    // It isn't clear that these make a big difference
     return "?elideSetAutoCommits=true" +
            "&useLocalTransactionState=true" +
            "&allowMultiQueries=true" +
            "&useLocalSessionState=true" +
            "&useAffectedRows=true" +
-           "&useServerPrepStmts=true";
+           "&useServerPrepStmts=true" +
+           "&cachePrepStmts=true"+
+           "&cacheCallableStmts=true"+
+           "&alwaysSendSetIsolation=false"+
+           "&prepStmtCacheSqlLimit=4096"+
+           "&prepStmtCacheSize=1000"+
+           "&enableQueryTimeouts=false"+
+           "&callableStmtCacheSize=1000"+
+           "&metadataCacheSize=1000"+
+           "&cacheResultSetMetadata=true";
+           // Do not use -- https://bugs.mysql.com/bug.php?id=95139
+           // "&cacheServerConfiguration=true";
   }
 
   /**
