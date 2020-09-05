@@ -79,7 +79,7 @@ public class LinkStorePgsql extends LinkStoreSql {
 
   // This hardwires Linkbench to use the database "linkbench"
   protected String getJdbcUrl() {
-    return "jdbc:postgresql://"+ host + ":" + port + "/linkbench";
+    return "jdbc:postgresql://root@"+ host + ":" + port + "/linkbench";
   }
 
   protected String getJdbcClassName() {
