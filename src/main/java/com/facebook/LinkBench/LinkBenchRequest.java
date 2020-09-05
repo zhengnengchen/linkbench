@@ -782,7 +782,7 @@ public class LinkBenchRequest implements Runnable {
         }
         ++dbindex;
       }
-      dbid = dbprefix + dbindex;
+      dbid = dbprefix;
       LinkBenchOp type = LinkBenchOp.UNKNOWN;
       try {
         Link link = new Link();
@@ -827,7 +827,7 @@ public class LinkBenchRequest implements Runnable {
         }
         ++dbindex;
       }
-      dbid = dbprefix + dbindex;
+      dbid = dbprefix;
       if (requestrate > 0) {
         reqTime_ns = Timer.waitExpInterval(rng, reqTime_ns, requestrate_ns);
       }
