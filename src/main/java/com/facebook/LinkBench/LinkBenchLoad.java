@@ -207,7 +207,7 @@ public class LinkBenchLoad implements Runnable {
     long count = 0;
 
     for (LinkedBlockingQueue<LoadChunk> chunk_q : chunk_q_list) {
-      dbid = dbprefix + count;
+      dbid = dbprefix;
       ++count;
       int bulkLoadBatchSize = store.bulkLoadBatchSize();
       boolean bulkLoad = bulkLoadBatchSize > 0;
