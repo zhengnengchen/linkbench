@@ -116,7 +116,7 @@ public class NodeLoader implements Runnable {
     logger.info("Starting loader thread  #" + loaderId + " loading nodes");
 
     for (int count = 0; count < dbcount; ++count) {
-      dbid = dbprefix + count;
+      dbid = dbprefix;
       try {
         this.nodeStore.initialize(props, Phase.LOAD, loaderId);
       } catch (Exception e) {
