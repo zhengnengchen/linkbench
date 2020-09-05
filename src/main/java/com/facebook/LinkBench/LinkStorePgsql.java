@@ -87,7 +87,8 @@ public class LinkStorePgsql extends LinkStoreSql {
   }
 
   protected String getJdbcOptions() {
-    return "?elideSetAutoCommits=true" +
+    return "?sslmode=disable" +
+           "elideSetAutoCommits=true" +
            "&useLocalTransactionState=true" +
            "&allowMultiQueries=true" +
            "&useLocalSessionState=true" +
