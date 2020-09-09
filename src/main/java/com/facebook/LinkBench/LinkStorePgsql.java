@@ -55,9 +55,8 @@ public class LinkStorePgsql extends LinkStoreSql {
                  "(id, link_type, count, time, version) " +
                  "VALUES (?, ?, ?, ?, 0) " +
                  "ON CONFLICT " + counttable + "_pkey DO UPDATE SET " +
-                 " count = " + init_dbid + "." + counttable +".count + ?" +
-                 ", version = " + init_dbid + "." + counttable +".version + 1 " +
-                 ", time = ?";
+                 "(count, version, time) = (" + init_dbid + "." + counttable +
+                 ".count + ?, " + init_dbid + "." + counttable +".version + 1, ?)";
 
     logger.debug("addLinkIncCount PS: " + sql);
     return conn_ac0.prepareStatement(sql);
