@@ -54,7 +54,7 @@ public class LinkStorePgsql extends LinkStoreSql {
     String sql = "INSERT INTO " + init_dbid + "." + counttable +
                  "(id, link_type, count, time, version) " +
                  "VALUES (?, ?, ?, ?, 0) " +
-                 "ON CONFLICT " + counttable + "_pkey DO UPDATE SET " +
+                 "ON CONFLICT (id, link_type) DO UPDATE SET " +
                  "(count, version, time) = (" + init_dbid + "." + counttable +
                  ".count + ?, " + init_dbid + "." + counttable +".version + 1, ?)";
 
