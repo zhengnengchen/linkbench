@@ -54,7 +54,7 @@ public class LinkStorePgsql extends LinkStoreSql {
     String sql = "INSERT INTO " + init_dbid + "." + counttable +
                  "(id, link_type, count, time, version) " +
                  "VALUES (?, ?, ?, ?, 0) " +
-                 "ON CONFLICT ON CONSTRAINT " + counttable + "_pkey DO UPDATE SET " +
+                 "ON CONFLICT " + counttable + "_pkey DO UPDATE SET " +
                  " count = " + init_dbid + "." + counttable +".count + ?" +
                  ", version = " + init_dbid + "." + counttable +".version + 1 " +
                  ", time = ?";
@@ -117,7 +117,7 @@ public class LinkStorePgsql extends LinkStoreSql {
     // Truncate table deletes all data and allows us to reset autoincrement
     stmt_ac1.execute(String.format("TRUNCATE TABLE %s.%s;", dbid, nodetable));
     
-    stmt_ac1.execute(String.format("ALTER SEQUENCE %s.%s_id_seq RESTART %d;",
+    stmt_ac1.execute(String.format("ALTER SEQUENCE %s.%s_id_seq START %d;",
                                    dbid, nodetable, startID));
   }
 
