@@ -351,10 +351,10 @@ abstract class LinkStoreSql extends GraphStore {
     // TODO are these valid for PG?
     jdbcUrl += getJdbcOptions();
 
-    conn_ac0 = DriverManager.getConnection(jdbcUrl);
+    conn_ac0 = DriverManager.getConnection(jdbcUrl, user, pwd);
     conn_ac0.setAutoCommit(false);
 
-    conn_ac1 = DriverManager.getConnection(jdbcUrl);
+    conn_ac1 = DriverManager.getConnection(jdbcUrl, user, pwd);
     conn_ac1.setAutoCommit(true);
 
     //System.err.println("connected");
