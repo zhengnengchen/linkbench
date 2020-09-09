@@ -79,7 +79,7 @@ public class LinkStorePgsql extends LinkStoreSql {
 
   // This hardwires Linkbench to use the database "linkbench"
   protected String getJdbcUrl() {
-    return "jdbc:postgresql://root@"+ host + ":" + port + "/linkbench";
+    return "jdbc:postgresql://" + host + ":" + port + "/linkbench";
   }
 
   protected String getJdbcClassName() {
@@ -87,8 +87,7 @@ public class LinkStorePgsql extends LinkStoreSql {
   }
 
   protected String getJdbcOptions() {
-    return "?sslmode=disable" +
-           "&elideSetAutoCommits=true" +
+    return "?elideSetAutoCommits=true" +
            "&useLocalTransactionState=true" +
            "&allowMultiQueries=true" +
            "&useLocalSessionState=true" +
