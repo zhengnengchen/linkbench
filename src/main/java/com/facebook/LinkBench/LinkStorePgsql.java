@@ -116,8 +116,7 @@ public class LinkStorePgsql extends LinkStoreSql {
     // Truncate table deletes all data and allows us to reset autoincrement
     stmt_ac1.execute(String.format("TRUNCATE TABLE %s.%s;", dbid, nodetable));
     
-    stmt_ac1.execute(String.format("ALTER SEQUENCE %s.%s_id_seq START %d;",
-                                   dbid, nodetable, startID));
+    //stmt_ac1.execute(String.format("ALTER SEQUENCE %s.%s_id_seq START %d;", dbid, nodetable, startID));
   }
 
   String getDefaultPort() { return "5432"; }
